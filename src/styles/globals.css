@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Light theme (default).
+   --------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  --brand: 124 58 237;
+  --brand-dark: 91 33 182;
+  --brand-light: 167 139 250;
+
+  --canvas: 250 250 250;
+  --panel: 255 255 255;
+
+  /* Card shadow components — tuned per theme. */
+  --shadow-ring: 24 24 27;
+  --shadow-ring-alpha: 0.06;
+  --shadow-drop: 0 0 0;
+  --shadow-drop-alpha: 0.04;
+
+  --ink-50: 250 250 250;
+  --ink-100: 244 244 245;
+  --ink-150: 236 236 238;
+  --ink-200: 228 228 231;
+  --ink-300: 212 212 216;
+  --ink-400: 161 161 170;
+  --ink-500: 113 113 122;
+  --ink-600: 82 82 91;
+  --ink-700: 63 63 70;
+  --ink-800: 39 39 42;
+  --ink-900: 24 24 27;
+  --ink-950: 10 10 11;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark theme. Modeled on Linear / GitHub / Spotify — deep canvas with a
+   distinctly lifted panel above it, white-leaning foregrounds, and a
+   clearly visible 1px ring on every card so panels look separate from
+   the background instead of dissolving into it.
+
+   Numbers below are intentionally NOT a pure ramp inversion. Mid-tone
+   foregrounds are pushed higher than light-mode mirrors them, because
+   on glossy displays the same hex value reads as a much dimmer gray
+   under a dark surround. The ramp here was tuned by eye on a MacBook
+   panel.
+   --------------------------------------------------------------------------- */
+
+.dark {
+  color-scheme: dark;
+
+  --brand: 167 139 250;
+  --brand-dark: 196 181 253;
+  --brand-light: 124 58 237;
+
+  --canvas: 9 9 11;              /* deep, near-black */
+  --panel: 28 28 32;             /* clearly lifted from canvas */
+
+  --shadow-ring: 255 255 255;
+  --shadow-ring-alpha: 0.10;     /* visible 1px outline on cards */
+  --shadow-drop: 0 0 0;
+  --shadow-drop-alpha: 0.4;      /* real drop under panels */
+
+  /* Ramp is roughly inverted from light, but the mid-range steps are
+     bumped to keep secondary text readable on dark surfaces. */
+  --ink-50: 28 28 32;             /* panel-equivalent */
+  --ink-100: 39 39 44;
+  --ink-150: 51 51 57;
+  --ink-200: 63 63 70;
+  --ink-300: 82 82 91;
+  --ink-400: 130 130 140;         /* bumped up from 113 */
+  --ink-500: 180 180 188;         /* secondary text, was 161 */
+  --ink-600: 220 220 226;         /* body text, was 212 */
+  --ink-700: 234 234 238;
+  --ink-800: 244 244 246;
+  --ink-900: 250 250 252;         /* headings */
+  --ink-950: 255 255 255;
+}
+
+html,
+body {
+  background: rgb(var(--canvas));
+  @apply text-ink-900;
+  font-feature-settings: "cv11", "ss01", "ss03", "cv01", "cv02";
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1, h2, h3, h4 { text-wrap: balance; }
+p { text-wrap: pretty; }
+
+.tabular-nums,
+[class*="tabular-nums"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+::selection {
+  background: rgb(var(--brand) / 0.22);
+  color: rgb(var(--ink-900));
+}
+
+tbody tr {
+  transition: background-color 120ms ease-out;
+}
+
+/* Page entrance — quiet fade-in. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-rise {
+  animation: fade-in 200ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise { animation: none; opacity: 1; }
+}
