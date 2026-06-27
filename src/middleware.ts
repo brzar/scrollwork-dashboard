@@ -8,6 +8,17 @@ const PUBLIC_PATHS = [
   "/auth/callback",
 ];
 
+// Endpoints that authenticate themselves (CRON_SECRET bearer for scheduled
+// jobs, or same-origin + role for browser calls). The middleware's
+// session gate would otherwise 401 a cron request (it carries a bearer,
+// not a session cookie) before it ever reaches the handler. The routes
+// still fully enforce their own auth.
+const SELF_AUTH_API_PATHS = [
+  "/api/admin/sync",
+  "/api/admin/sync-metrics",
+  "/api/admin/megaphone-refresh",
+];
+
 export async function middleware(req: NextRequest) {
   // CVE-2025-29927 defense-in-depth: strip the middleware-bypass header.
   req.headers.delete("x-middleware-subrequest");
@@ -20,9 +31,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const { res, user } = await updateSession(req);
 
-  const isPublic = PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(p + "/"),
-  );
+  const isPublic =
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+    SELF_AUTH_API_PATHS.includes(pathname);
 
   // Unauthenticated → /login (preserving the destination as ?next).
   if (!user && !isPublic) {
