@@ -1,0 +1,37 @@
+name: Megaphone data sync
+
+# Pulls fresh podcasts + metrics from Megaphone into Supabase using the
+# stored session (no browser needed). This is what keeps the live
+# dashboard's numbers current. Cheap + fast — just two authenticated
+# requests to the deployed app.
+#
+# Cadence: every 30 minutes fits GitHub's free Actions tier (a 10-minute
+# cadence would exceed the 2,000 free minutes/month — see the note below).
+# To go more frequent, either bump the cron here and accept the minutes,
+# or run sync-metrics from a Vercel Pro cron instead.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 minutes (UTC)
+  workflow_dispatch: {}
+
+concurrency:
+  group: megaphone-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APP_URL: ${{ secrets.APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Sync podcasts
+        run: |
+          curl -fsS --max-time 120 -X GET "$APP_URL/api/admin/sync" \
+            -H "Authorization: Bearer $CRON_SECRET"
+      - name: Sync metrics
+        run: |
+          curl -fsS --max-time 120 -X GET "$APP_URL/api/admin/sync-metrics" \
+            -H "Authorization: Bearer $CRON_SECRET"
