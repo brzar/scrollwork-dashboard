@@ -96,6 +96,85 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Claim a pending invitation if there's no profile yet.
+  //
+  // The signup trigger only fires on the FIRST auth.users insert. If a
+  // person signed in BEFORE being invited (their auth row already exists),
+  // the trigger never re-fires and they'd be stuck forever. This runs on
+  // every login, so an invite that arrives after a sign-in still takes
+  // effect on the next attempt.
+  if (userEmail) {
+    const { data: existingProfile } = await admin
+      .from("user_profile")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!existingProfile) {
+      const { data: invite } = await admin
+        .from("invitation")
+        .select("id, role, partner_name, podcast_access, invited_by")
+        .ilike("email", userEmail)
+        .is("accepted_at", null)
+        .is("revoked_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (invite) {
+        const meta = (data.user?.user_metadata ?? {}) as {
+          full_name?: string;
+          name?: string;
+          avatar_url?: string;
+          picture?: string;
+        };
+        const { error: insErr } = await admin.from("user_profile").insert({
+          user_id: userId,
+          email: data.user?.email || "",
+          full_name: meta.full_name ?? meta.name ?? null,
+          avatar_url: meta.avatar_url ?? meta.picture ?? null,
+          role: invite.role,
+          active: true,
+          partner_name: invite.partner_name ?? null,
+        });
+        if (!insErr) {
+          await admin
+            .from("invitation")
+            .update({ accepted_at: new Date().toISOString() })
+            .eq("id", invite.id);
+          const grants = Array.isArray(invite.podcast_access)
+            ? (invite.podcast_access as Array<{
+                podcast_id?: string;
+                access_level?: string;
+              }>)
+            : [];
+          const rows = grants
+            .filter((g) => g.podcast_id)
+            .map((g) => ({
+              user_id: userId,
+              podcast_id: g.podcast_id as string,
+              access_level: (g.access_level ?? "read") as
+                | "read"
+                | "write"
+                | "admin",
+              granted_by: invite.invited_by ?? null,
+            }));
+          if (rows.length > 0) {
+            await admin
+              .from("user_podcast_access")
+              .upsert(rows, { onConflict: "user_id,podcast_id" });
+          }
+          await writeAudit({
+            session: null,
+            action: "user.invite.claimed",
+            targetType: "user",
+            targetId: userId,
+            metadata: { role: invite.role, via: "callback" },
+            req,
+          });
+        }
+      }
+    }
+  }
+
   // Hard gate: if no user_profile exists for this user OR the profile is
   // disabled, sign the OAuth session out and bounce them to /login with
   // an `unauthorized` error. The trigger only creates profiles for users
