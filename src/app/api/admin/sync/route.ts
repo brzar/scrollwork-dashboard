@@ -4,6 +4,7 @@ import { rateLimit, requireRole, requireSameOrigin, safeError } from "@/lib/secu
 import type { Role } from "@/lib/permissions";
 import { canSyncMetrics } from "@/lib/permissions";
 import { listPodcasts } from "@/lib/megaphone";
+import { listMegaphoneAccounts } from "@/lib/megaphone-accounts";
 import { writeAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -47,18 +48,42 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const remote = await listPodcasts();
+    const accounts = listMegaphoneAccounts();
+    if (accounts.length === 0) {
+      return safeError(
+        500,
+        "No Megaphone accounts configured (set MEGAPHONE_API_TOKEN / MEGAPHONE_NETWORK_ID).",
+      );
+    }
     const supabase = createAdminClient();
 
-    const rows = remote.map((p) => ({
-      megaphone_id: p.id,
-      title: p.title,
-      subtitle: p.subtitle ?? null,
-      author: p.author ?? null,
-      image_url: p.imageFile ?? null,
-      network_id: process.env.MEGAPHONE_NETWORK_ID ?? null,
-      active: true,
-    }));
+    // Pull each account's podcasts and tag rows with that account so the
+    // metrics sync later knows which session to use per show.
+    const rows: Array<{
+      megaphone_id: string;
+      title: string;
+      subtitle: string | null;
+      author: string | null;
+      image_url: string | null;
+      network_id: string | null;
+      active: boolean;
+      megaphone_account: string;
+    }> = [];
+    for (const account of accounts) {
+      const remote = await listPodcasts(account);
+      for (const p of remote) {
+        rows.push({
+          megaphone_id: p.id,
+          title: p.title,
+          subtitle: p.subtitle ?? null,
+          author: p.author ?? null,
+          image_url: p.imageFile ?? null,
+          network_id: account.networkId,
+          active: true,
+          megaphone_account: account.key,
+        });
+      }
+    }
 
     // Upsert on megaphone_id so existing rows keep their UUID/access mappings.
     const { data, error } = await supabase

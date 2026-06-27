@@ -56,18 +56,39 @@ export class MegaphoneWebTimeout extends Error {
  * Megaphone never hangs a sync indefinitely. */
 const CALL_TIMEOUT_MS = 20_000;
 
-async function loadSession(): Promise<MegaphoneSession> {
+async function loadSession(account: string): Promise<MegaphoneSession> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  // Per-account row (multi-account). Fall back to the legacy singleton
+  // (id = true) if the account column hasn't been migrated in yet.
+  let row: {
+    organization_id: string | null;
+    csrf_token: string | null;
+    cookie_header: string | null;
+  } | null = null;
+
+  const byAccount = await supabase
     .from("megaphone_session")
     .select("organization_id, csrf_token, cookie_header")
-    .eq("id", true)
+    .eq("account", account)
     .maybeSingle();
-  if (error || !data) throw new MegaphoneWebSessionMissing();
+  if (byAccount.error) {
+    const legacy = await supabase
+      .from("megaphone_session")
+      .select("organization_id, csrf_token, cookie_header")
+      .eq("id", true)
+      .maybeSingle();
+    row = legacy.data;
+  } else {
+    row = byAccount.data;
+  }
+
+  if (!row || !row.organization_id || !row.csrf_token || !row.cookie_header) {
+    throw new MegaphoneWebSessionMissing();
+  }
   return {
-    organizationId: data.organization_id,
-    csrfToken: data.csrf_token,
-    cookieHeader: data.cookie_header,
+    organizationId: row.organization_id,
+    csrfToken: row.csrf_token,
+    cookieHeader: row.cookie_header,
   };
 }
 
@@ -148,6 +169,8 @@ export type DeliveryRequest = {
   end: string;
   /** Megaphone podcast IDs to filter to. Omit/empty = all podcasts. */
   podcastIds?: string[];
+  /** Which Megaphone account's session to use. Defaults to "primary". */
+  account?: string;
 };
 
 /**
@@ -159,7 +182,7 @@ export type DeliveryRequest = {
 export async function fetchDelivery(
   req: DeliveryRequest,
 ): Promise<DeliveryPoint[]> {
-  const session = await loadSession();
+  const session = await loadSession(req.account ?? "primary");
 
   // Filter shape is a tuple of [field, values[]] — Megaphone rejects
   // object-shaped filters with HTTP 500. Empty array = all podcasts.
@@ -238,6 +261,8 @@ export type EarningsRequest = {
   granularity: "day" | "month";
   /** Optional Megaphone podcast IDs to filter to. */
   podcastIds?: string[];
+  /** Which Megaphone account's session to use. Defaults to "primary". */
+  account?: string;
 };
 
 const ALL_METRICS = [
@@ -252,7 +277,7 @@ const ALL_METRICS = [
 export async function fetchEarnings(
   req: EarningsRequest,
 ): Promise<EarningsPoint[]> {
-  const session = await loadSession();
+  const session = await loadSession(req.account ?? "primary");
 
   // Earnings uses camelCase filter keys (`podcastId`) — different from the
   // delivery endpoint, which uses snake_case (`podcast_id`). Megaphone

@@ -52,8 +52,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { refreshAndPersist } = await import("@/lib/megaphone-refresh");
-    const result = await refreshAndPersist();
+    const { refreshAllAccounts } = await import("@/lib/megaphone-refresh");
+    const results = await refreshAllAccounts();
+    const anyOk = results.some((r) => r.result.ok);
+    const allOk = results.length > 0 && results.every((r) => r.result.ok);
     await writeAudit({
       session: actor
         ? {
@@ -68,16 +70,32 @@ export async function POST(req: NextRequest) {
       action: "megaphone.session.refresh",
       targetType: "system",
       targetId: "megaphone_session",
-      metadata: { source: isCron ? "cron" : "manual", ok: result.ok, message: result.message },
+      metadata: {
+        source: isCron ? "cron" : "manual",
+        results: results.map((r) => ({
+          account: r.account,
+          ok: r.result.ok,
+          message: r.result.message,
+        })),
+      },
       req,
     });
-    if (!result.ok) {
-      return NextResponse.json(
-        { ok: false, error: result.message },
-        { status: 424 },
-      );
+    if (!anyOk) {
+      const msg =
+        results.map((r) => `${r.label}: ${r.result.message}`).join(" · ") ||
+        "No Megaphone accounts configured.";
+      return NextResponse.json({ ok: false, error: msg }, { status: 424 });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      allOk,
+      results: results.map((r) => ({
+        account: r.account,
+        label: r.label,
+        ok: r.result.ok,
+        message: r.result.message,
+      })),
+    });
   } catch (err) {
     return safeError(500, "Refresh failed", err);
   }

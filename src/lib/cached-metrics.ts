@@ -46,11 +46,32 @@ export type SyncResult = {
 export async function syncMetrics(now: Date = new Date()): Promise<SyncResult> {
   const supabase = createAdminClient();
 
-  const { data: podcasts, error } = await supabase
+  // Select the account too so each podcast's metrics use its own session.
+  // Fall back to a basic select (+ 'primary') if the column isn't migrated.
+  let podcasts: Array<{
+    id: string;
+    megaphone_id: string;
+    megaphone_account: string;
+  }> = [];
+  const withAccount = await supabase
     .from("podcast")
-    .select("id, megaphone_id")
+    .select("id, megaphone_id, megaphone_account")
     .eq("active", true);
-  if (error) throw new Error(`Failed to list podcasts: ${error.message}`);
+  if (withAccount.error) {
+    const basic = await supabase
+      .from("podcast")
+      .select("id, megaphone_id")
+      .eq("active", true);
+    if (basic.error) {
+      throw new Error(`Failed to list podcasts: ${basic.error.message}`);
+    }
+    podcasts = (basic.data ?? []).map((p) => ({
+      ...p,
+      megaphone_account: "primary",
+    }));
+  } else {
+    podcasts = withAccount.data ?? [];
+  }
 
   const result: SyncResult = {
     podcasts: 0,
@@ -69,11 +90,12 @@ export async function syncMetrics(now: Date = new Date()): Promise<SyncResult> {
   // Fan out in parallel — Megaphone tolerates concurrent reads from one
   // session. 9 podcasts × 2 calls = 18 requests, well within limits.
   await Promise.all(
-    (podcasts ?? []).map(async (p) => {
+    podcasts.map(async (p) => {
       result.podcasts += 1;
+      const account = p.megaphone_account || "primary";
       const [dl, er] = await Promise.allSettled([
-        fetchDelivery({ start: deliveryStart, end: deliveryEnd, podcastIds: [p.megaphone_id] }),
-        fetchEarnings({ start: earningsStart, end: earningsEnd, granularity: "month", podcastIds: [p.megaphone_id] }),
+        fetchDelivery({ start: deliveryStart, end: deliveryEnd, podcastIds: [p.megaphone_id], account }),
+        fetchEarnings({ start: earningsStart, end: earningsEnd, granularity: "month", podcastIds: [p.megaphone_id], account }),
       ]);
 
       if (dl.status === "fulfilled") {

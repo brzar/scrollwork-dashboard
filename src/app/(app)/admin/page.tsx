@@ -19,15 +19,10 @@ export default async function AdminOverview() {
   if (!isAdmin(session)) redirect("/");
 
   const supabase = createAdminClient();
-  const [usersRes, podcastsRes, accessRes, sessionRes, lastSyncRes] = await Promise.all([
+  const [usersRes, podcastsRes, accessRes, lastSyncRes] = await Promise.all([
     supabase.from("user_profile").select("user_id, role, active"),
     supabase.from("podcast").select("id, active"),
     supabase.from("user_podcast_access").select("user_id"),
-    supabase
-      .from("megaphone_session")
-      .select("storage_state, last_refresh_at, last_refresh_status, last_refresh_message")
-      .eq("id", true)
-      .maybeSingle(),
     supabase
       .from("audit_log")
       .select("created_at, metadata")
@@ -38,8 +33,35 @@ export default async function AdminOverview() {
   const users = usersRes.data ?? [];
   const podcasts = podcastsRes.data ?? [];
   const access = accessRes.data ?? [];
-  const sessionInfo = sessionRes.data;
   const lastSync = lastSyncRes.data?.[0];
+
+  // Megaphone data-source sessions (one row per account). Resilient to the
+  // multi-account migration not being applied yet.
+  type SessionRow = {
+    account: string;
+    storage_state: unknown;
+    last_refresh_at: string | null;
+    last_refresh_status: string | null;
+    last_refresh_message: string | null;
+  };
+  let sessions: SessionRow[] = [];
+  const sessRes = await supabase
+    .from("megaphone_session")
+    .select("account, storage_state, last_refresh_at, last_refresh_status, last_refresh_message");
+  if (sessRes.error) {
+    const legacy = await supabase
+      .from("megaphone_session")
+      .select("storage_state, last_refresh_at, last_refresh_status, last_refresh_message")
+      .eq("id", true)
+      .maybeSingle();
+    if (legacy.data) {
+      sessions = [{ account: "primary", ...legacy.data } as SessionRow];
+    }
+  } else {
+    sessions = (sessRes.data ?? []) as SessionRow[];
+  }
+  const accountLabel = (key: string) =>
+    key === "secondary" ? "Account 2" : key === "primary" ? "Account 1" : key;
   // metadata is jsonb (typed as Json). Narrow to the shape the sync route
   // writes so we can read the summary counts without `any`.
   const syncMeta = (lastSync?.metadata ?? null) as {
@@ -49,7 +71,8 @@ export default async function AdminOverview() {
     failures?: unknown[];
   } | null;
 
-  const showRefresh = isSuperAdmin(session) && !!sessionInfo?.storage_state;
+  const showRefresh =
+    isSuperAdmin(session) && sessions.some((s) => !!s.storage_state);
   const theme = isSuperAdmin(session) ? await resolveTheme() : null;
 
   return (
@@ -118,30 +141,41 @@ export default async function AdminOverview() {
         <Card>
           <CardBody>
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm text-ink-600">Data source session</div>
-                <div className="text-base font-semibold text-ink-900 mt-2">
-                  {sessionInfo?.storage_state
-                    ? "Auto-refresh armed"
-                    : sessionInfo
-                      ? "Manual only"
-                      : "Not configured"}
-                </div>
-                {sessionInfo?.last_refresh_at ? (
-                  <div className="text-xs text-ink-500 mt-1">
-                    Last refresh{" "}
-                    {new Date(sessionInfo.last_refresh_at).toLocaleString()}
-                    {sessionInfo.last_refresh_status === "failed" ? (
-                      <span className="text-red-600">
-                        {" "}· {sessionInfo.last_refresh_message ?? "failed"}
-                      </span>
-                    ) : null}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-600">Data source sessions</div>
+                {sessions.length === 0 ? (
+                  <div className="text-xs text-ink-500 mt-2">
+                    Auth not configured. Run{" "}
+                    <code className="text-ink-700">npm run megaphone:auth</code>.
                   </div>
-                ) : !sessionInfo ? (
-                  <div className="text-xs text-ink-500 mt-1">
-                    Auth not configured. See SETUP.md.
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {sessions.map((s) => (
+                      <div key={s.account}>
+                        <div className="text-[13px] font-semibold text-ink-900">
+                          {accountLabel(s.account)}
+                          <span className="font-normal text-ink-500">
+                            {" · "}
+                            {s.storage_state
+                              ? "auto-refresh armed"
+                              : "manual only"}
+                          </span>
+                        </div>
+                        {s.last_refresh_at ? (
+                          <div className="text-xs text-ink-500">
+                            Last refresh{" "}
+                            {new Date(s.last_refresh_at).toLocaleString()}
+                            {s.last_refresh_status === "failed" ? (
+                              <span className="text-red-600">
+                                {" "}· {s.last_refresh_message ?? "failed"}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
-                ) : null}
+                )}
               </div>
               {showRefresh ? <RefreshButton /> : null}
             </div>

@@ -1,4 +1,8 @@
 import "server-only";
+import {
+  accountForPodcast,
+  type MegaphoneAccount,
+} from "./megaphone-accounts";
 
 /**
  * Megaphone CMS API client — content management only (podcasts, episodes).
@@ -7,25 +11,12 @@ import "server-only";
  * the public CMS API; we use the reverse-engineered `/api/v2/private`
  * endpoints via `megaphone-web.ts` for those. See README → "Megaphone
  * limitations" for the full story.
+ *
+ * Every call is scoped to a specific account (token + network) — see
+ * megaphone-accounts.ts.
  */
 
 const DEFAULT_BASE = "https://cms.megaphone.fm/api";
-
-function token(): string {
-  const t = process.env.MEGAPHONE_API_TOKEN;
-  if (!t) {
-    throw new Error(
-      "MEGAPHONE_API_TOKEN is not set. Add it to your server env (never client).",
-    );
-  }
-  return t;
-}
-
-function networkId(): string {
-  const n = process.env.MEGAPHONE_NETWORK_ID;
-  if (!n) throw new Error("MEGAPHONE_NETWORK_ID is not set.");
-  return n;
-}
 
 function baseUrl(): string {
   return process.env.MEGAPHONE_API_BASE || DEFAULT_BASE;
@@ -42,6 +33,7 @@ export class MegaphoneError extends Error {
 }
 
 async function callCms<T>(
+  account: MegaphoneAccount,
   path: string,
   query?: Record<string, string | number | undefined>,
   retries = 2,
@@ -57,7 +49,7 @@ async function callCms<T>(
   while (true) {
     const res = await fetch(url.toString(), {
       headers: {
-        Authorization: `Token token="${token()}"`,
+        Authorization: `Token token="${account.apiToken}"`,
         Accept: "application/json",
       },
       cache: "no-store",
@@ -96,19 +88,25 @@ export type MegaphoneEpisode = {
 
 // ---- Reads ---------------------------------------------------------------
 
-export async function listPodcasts(): Promise<MegaphonePodcast[]> {
-  const raw = await callCms<any[]>(`/networks/${networkId()}/podcasts`, {
-    per_page: 200,
-  });
+export async function listPodcasts(
+  account: MegaphoneAccount,
+): Promise<MegaphonePodcast[]> {
+  const raw = await callCms<any[]>(
+    account,
+    `/networks/${account.networkId}/podcasts`,
+    { per_page: 200 },
+  );
   return raw.map(normalizePodcast);
 }
 
 export async function listEpisodes(
   podcastMegaphoneId: string,
-  opts: { perPage?: number; page?: number } = {},
+  opts: { perPage?: number; page?: number; account?: string } = {},
 ): Promise<MegaphoneEpisode[]> {
+  const account = accountForPodcast(opts.account);
   const raw = await callCms<any[]>(
-    `/networks/${networkId()}/podcasts/${podcastMegaphoneId}/episodes`,
+    account,
+    `/networks/${account.networkId}/podcasts/${podcastMegaphoneId}/episodes`,
     { per_page: opts.perPage ?? 50, page: opts.page ?? 1 },
   );
   return raw.map((e) => normalizeEpisode(e, podcastMegaphoneId));

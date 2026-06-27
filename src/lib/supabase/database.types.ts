@@ -76,6 +76,7 @@ export interface Database {
           monetizable: boolean;
           split_mode_id: string | null;
           creator_share_pct: number | null;
+          megaphone_account: string;
           created_at: string;
           updated_at: string;
         };
@@ -93,6 +94,7 @@ export interface Database {
           monetizable?: boolean;
           split_mode_id?: string | null;
           creator_share_pct?: number | null;
+          megaphone_account?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -110,6 +112,7 @@ export interface Database {
           monetizable?: boolean;
           split_mode_id?: string | null;
           creator_share_pct?: number | null;
+          megaphone_account?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -279,10 +282,11 @@ export interface Database {
       };
       megaphone_session: {
         Row: {
-          id: boolean;
-          organization_id: string;
-          csrf_token: string;
-          cookie_header: string;
+          account: string;
+          id: boolean | null;
+          organization_id: string | null;
+          csrf_token: string | null;
+          cookie_header: string | null;
           expires_at: string | null;
           updated_by: string | null;
           updated_at: string;
@@ -292,10 +296,11 @@ export interface Database {
           last_refresh_message: string | null;
         };
         Insert: {
-          id?: boolean;
-          organization_id: string;
-          csrf_token: string;
-          cookie_header: string;
+          account: string;
+          id?: boolean | null;
+          organization_id?: string | null;
+          csrf_token?: string | null;
+          cookie_header?: string | null;
           expires_at?: string | null;
           updated_by?: string | null;
           updated_at?: string;
@@ -305,10 +310,11 @@ export interface Database {
           last_refresh_message?: string | null;
         };
         Update: {
-          id?: boolean;
-          organization_id?: string;
-          csrf_token?: string;
-          cookie_header?: string;
+          account?: string;
+          id?: boolean | null;
+          organization_id?: string | null;
+          csrf_token?: string | null;
+          cookie_header?: string | null;
           expires_at?: string | null;
           updated_by?: string | null;
           updated_at?: string;

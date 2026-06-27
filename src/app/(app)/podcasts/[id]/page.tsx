@@ -47,6 +47,18 @@ export default async function PodcastDetail({
     .maybeSingle();
   if (!podcast) notFound();
 
+  // Which Megaphone account this show belongs to (best-effort — defaults
+  // to primary if the multi-account column isn't migrated in yet).
+  let podcastAccount: string | undefined;
+  const acctRes = await supabase
+    .from("podcast")
+    .select("megaphone_account")
+    .eq("id", params.id)
+    .maybeSingle();
+  if (!acctRes.error) {
+    podcastAccount = acctRes.data?.megaphone_account ?? undefined;
+  }
+
   const now = new Date();
   const earningsFrom = isoDate(startOfYear(subMonths(now, 12)));
   const earningsTo = isoDate(endOfMonth(now));
@@ -58,7 +70,10 @@ export default async function PodcastDetail({
     readCachedEarnings([podcast.id], earningsFrom, earningsTo),
     readCachedDelivery([podcast.id], prior30Start, isoDate(now)),
     computeCpmByPodcast([podcast.id], now),
-    listEpisodes(podcast.megaphone_id, { perPage: 15 }).catch(() => []),
+    listEpisodes(podcast.megaphone_id, {
+      perPage: 15,
+      account: podcastAccount,
+    }).catch(() => []),
   ]);
 
   const cpm = cpmMap.get(podcast.id) ?? {

@@ -28,51 +28,64 @@ async function main() {
   }
 
   const supabase = createClient(url, key);
-  const { data: sess, error } = await supabase
+
+  // Refresh every account row that has a stored session. (Pass an account
+  // arg to refresh just one: npm run megaphone:refresh -- secondary)
+  const only = (process.argv[2] || "").trim();
+  const query = supabase
     .from("megaphone_session")
-    .select("organization_id, storage_state")
-    .eq("id", true)
-    .maybeSingle();
+    .select("account, organization_id, storage_state");
+  const { data: rows, error } = only
+    ? await query.eq("account", only)
+    : await query;
   if (error) {
     console.error("✗ DB read failed:", error.message);
     process.exit(2);
   }
-  if (!sess?.storage_state) {
+  if (!rows || rows.length === 0) {
     console.error(
-      "✗ No stored session. Run `npm run megaphone:auth` once first.",
+      "✗ No stored sessions. Run `npm run megaphone:auth` once first.",
     );
     process.exit(2);
   }
 
-  console.log("→ Refreshing Megaphone session…");
-  const result = await runRefresh({
-    organizationId: sess.organization_id,
-    storageState: sess.storage_state,
-  });
-
-  await supabase
-    .from("megaphone_session")
-    .update({
-      ...(result.ok
-        ? {
-            cookie_header: result.cookieHeader,
-            csrf_token: result.csrfToken,
-            storage_state: result.storageState,
-          }
-        : {}),
-      last_refresh_at: new Date().toISOString(),
-      last_refresh_status: result.ok ? "ok" : "failed",
-      last_refresh_message: result.message,
-    })
-    .eq("id", true);
-
-  if (result.ok) {
-    console.log("✓ Session refreshed.");
-    process.exit(0);
-  } else {
-    console.error("✗", result.message);
-    process.exit(2);
+  let anyFailed = false;
+  for (const sess of rows) {
+    const account = sess.account ?? "primary";
+    if (!sess.storage_state || !sess.organization_id) {
+      console.error(`✗ ${account}: no stored session — run megaphone:auth.`);
+      anyFailed = true;
+      continue;
+    }
+    console.log(`→ Refreshing "${account}"…`);
+    const result = await runRefresh({
+      organizationId: sess.organization_id,
+      storageState: sess.storage_state,
+    });
+    await supabase
+      .from("megaphone_session")
+      .update({
+        ...(result.ok
+          ? {
+              cookie_header: result.cookieHeader,
+              csrf_token: result.csrfToken,
+              storage_state: result.storageState,
+            }
+          : {}),
+        last_refresh_at: new Date().toISOString(),
+        last_refresh_status: result.ok ? "ok" : "failed",
+        last_refresh_message: result.message,
+      })
+      .eq("account", account);
+    if (result.ok) {
+      console.log(`✓ ${account}: refreshed.`);
+    } else {
+      console.error(`✗ ${account}: ${result.message}`);
+      anyFailed = true;
+    }
   }
+
+  process.exit(anyFailed ? 2 : 0);
 }
 
 main().catch((err) => {
