@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireRole, safeError } from "@/lib/security";
+import { rateLimit, requireRole, safeError } from "@/lib/security";
 import { canViewAudit } from "@/lib/permissions";
 
 export const runtime = "nodejs";
@@ -8,6 +8,12 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const auth = await requireRole(canViewAudit);
   if (auth.error) return auth.error;
+  const rl = rateLimit(req, auth.session.userId, {
+    scope: "audit:read",
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (rl) return rl;
 
   const limit = Math.min(
     1000,

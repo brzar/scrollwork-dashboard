@@ -3,6 +3,7 @@ import { z } from "zod";
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  rateLimit,
   requireRole,
   requireSameOrigin,
   safeError,
@@ -29,6 +30,12 @@ export async function POST(req: Request) {
   if (originBlock) return originBlock;
   const auth = await requireRole(isSuperAdmin);
   if (auth.error) return auth.error;
+  const rl = rateLimit(req, auth.session.userId, {
+    scope: "settings:theme",
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (rl) return rl;
 
   const raw = await req.json().catch(() => ({}));
   const parsed = Schema.safeParse(raw);

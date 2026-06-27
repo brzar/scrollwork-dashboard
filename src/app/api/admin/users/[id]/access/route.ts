@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  rateLimit,
   requireRole,
   requireSameOrigin,
   safeError,
@@ -33,6 +34,12 @@ export async function POST(
   if (originBlock) return originBlock;
   const auth = await requireRole(canManagePodcastAccess);
   if (auth.error) return auth.error;
+  const rl = rateLimit(req, auth.session.userId, {
+    scope: "access:grant",
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (rl) return rl;
 
   const raw = await req.json().catch(() => ({}));
   const parsed = GrantSchema.safeParse(raw);
@@ -84,6 +91,12 @@ export async function DELETE(
   if (originBlock) return originBlock;
   const auth = await requireRole(canManagePodcastAccess);
   if (auth.error) return auth.error;
+  const rl = rateLimit(req, auth.session.userId, {
+    scope: "access:revoke",
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (rl) return rl;
 
   const podcastId = new URL(req.url).searchParams.get("podcast_id");
   if (!podcastId || !/^[0-9a-f-]{36}$/i.test(podcastId)) {

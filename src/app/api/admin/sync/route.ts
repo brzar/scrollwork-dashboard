@@ -116,6 +116,22 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Vercel Cron invokes endpoints with GET + an `Authorization: Bearer
+ * $CRON_SECRET` header. Accept that here (cron-only — no session path) and
+ * delegate to POST, which re-validates the bearer and runs the cron branch.
+ */
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const cronSecret = process.env.CRON_SECRET;
+  const ok =
+    cronSecret &&
+    authHeader.startsWith("Bearer ") &&
+    timingSafeEq(authHeader.slice("Bearer ".length), cronSecret);
+  if (!ok) return safeError(401, "Unauthorized");
+  return POST(req);
+}
+
 /** Constant-time string compare. */
 function timingSafeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

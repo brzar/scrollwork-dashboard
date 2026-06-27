@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  rateLimit,
   requireRole,
   requireSameOrigin,
   safeError,
@@ -35,6 +36,12 @@ export async function PATCH(
   if (originBlock) return originBlock;
   const auth = await requireRole(canManageUsers);
   if (auth.error) return auth.error;
+  const rl = rateLimit(req, auth.session.userId, {
+    scope: "user:patch",
+    limit: 40,
+    windowMs: 60_000,
+  });
+  if (rl) return rl;
 
   const raw = await req.json().catch(() => ({}));
   const parsed = PatchSchema.safeParse(raw);
