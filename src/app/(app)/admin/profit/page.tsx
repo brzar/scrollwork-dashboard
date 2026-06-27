@@ -12,9 +12,7 @@ import { readCachedEarnings } from "@/lib/cached-metrics";
 import {
   FOUNDER_COUNT,
   FOUNDER_SHARE_PCT,
-  GROSS_SHARE_PCT,
-  PARTNER_FEE_PCT,
-  splitRevenue,
+  splitRevenueWith,
 } from "@/lib/profit";
 import { fmtCurrency } from "@/lib/format";
 import {
@@ -28,6 +26,7 @@ import {
 } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
 import { ProfitTable, type ProfitTableRow } from "./ProfitTable";
+import { PodcastSplitsTable, type PodcastSplitRow } from "./PodcastSplitsTable";
 
 export const dynamic = "force-dynamic";
 
@@ -48,25 +47,62 @@ export default async function ProfitPage() {
   const admin = createAdminClient();
   const { data: pods } = await admin
     .from("podcast")
-    .select("id")
-    .eq("active", true);
-  const podIds = (pods ?? []).map((p) => p.id);
+    .select("id, title, gross_share_pct, partner_fee_pct")
+    .eq("active", true)
+    .order("title", { ascending: true });
+  const podcasts = pods ?? [];
+  const podIds = podcasts.map((p) => p.id);
+  const splitOf = new Map(
+    podcasts.map((p) => [
+      p.id,
+      { gross: p.gross_share_pct, partner: p.partner_fee_pct },
+    ]),
+  );
 
   const earnings = await readCachedEarnings(podIds, queryStart, queryEnd);
 
-  // Roll up creator revenue per month.
-  type Row = { month: string; confirmed: number; estimated: number };
+  // Roll up per month, applying EACH podcast's own split before summing.
+  // We track creator revenue (for display) and the post-split net,
+  // separated into confirmed vs. estimated so the chart + badges work.
+  type Row = {
+    month: string;
+    creatorConfirmed: number;
+    creatorEstimated: number;
+    grossTotal: number;
+    partnerFeeTotal: number;
+    netConfirmed: number;
+    netEstimated: number;
+  };
   const map = new Map<string, Row>();
   const get = (m: string): Row => {
-    const r = map.get(m) ?? { month: m, confirmed: 0, estimated: 0 };
+    const r =
+      map.get(m) ??
+      ({
+        month: m,
+        creatorConfirmed: 0,
+        creatorEstimated: 0,
+        grossTotal: 0,
+        partnerFeeTotal: 0,
+        netConfirmed: 0,
+        netEstimated: 0,
+      } satisfies Row);
     map.set(m, r);
     return r;
   };
   for (const r of earnings.rows) {
     const v = r.value ?? {};
+    const split = splitOf.get(r.podcastId) ?? { gross: 0.3, partner: 0.2 };
+    const confirmed = Number(v.total ?? 0);
+    const estimated = Number(v.totalEstimated ?? 0);
+    const sc = splitRevenueWith(confirmed, split.gross, split.partner);
+    const se = splitRevenueWith(estimated, split.gross, split.partner);
     const row = get(r.date);
-    row.confirmed += Number(v.total ?? 0);
-    row.estimated += Number(v.totalEstimated ?? 0);
+    row.creatorConfirmed += confirmed;
+    row.creatorEstimated += estimated;
+    row.grossTotal += sc.gross + se.gross;
+    row.partnerFeeTotal += sc.partnerFee + se.partnerFee;
+    row.netConfirmed += sc.net;
+    row.netEstimated += se.net;
   }
 
   // Ascending for the chart, descending for the table.
@@ -77,37 +113,46 @@ export default async function ProfitPage() {
 
   // ---- Topline ---------------------------------------------------------
   const thisMonth = map.get(thisMonthIso);
-  const thisMonthCreator =
-    (thisMonth?.confirmed ?? 0) + (thisMonth?.estimated ?? 0);
-  const thisMonthNet = splitRevenue(thisMonthCreator).net;
+  const thisMonthNet =
+    (thisMonth?.netConfirmed ?? 0) + (thisMonth?.netEstimated ?? 0);
 
   const lastFinalized = descending.find(
-    (r) => r.month < thisMonthIso && r.confirmed > 0,
+    (r) => r.month < thisMonthIso && r.creatorConfirmed > 0,
   );
-  const lastFinalizedNet = lastFinalized
-    ? splitRevenue(lastFinalized.confirmed).net
-    : 0;
+  const lastFinalizedNet = lastFinalized ? lastFinalized.netConfirmed : 0;
 
   const ytdRows = ascending.filter((r) => r.month >= ytdStart);
-  const ytdConfirmed = ytdRows.reduce((s, r) => s + r.confirmed, 0);
-  const ytdEstimated = ytdRows.reduce((s, r) => s + r.estimated, 0);
-  const ytdNetConfirmed = splitRevenue(ytdConfirmed).net;
-  const ytdNetEstimated = splitRevenue(ytdEstimated).net;
+  const ytdNetConfirmed = ytdRows.reduce((s, r) => s + r.netConfirmed, 0);
+  const ytdNetEstimated = ytdRows.reduce((s, r) => s + r.netEstimated, 0);
   const ytdNet = ytdNetConfirmed + ytdNetEstimated;
 
   // Chart shows per-founder take-home so it lines up with the topline
   // cards. Confirmed dark, estimated lighter on top.
   const chart: EarningsBarPoint[] = ascending.map((r) => ({
     month: MONTH_SHORT(r.month),
-    confirmed: splitRevenue(r.confirmed).perFounder,
-    estimated: splitRevenue(r.estimated).perFounder,
+    confirmed: r.netConfirmed * FOUNDER_SHARE_PCT,
+    estimated: r.netEstimated * FOUNDER_SHARE_PCT,
   }));
 
-  const tableRows: ProfitTableRow[] = descending.map((r) => ({
-    month: r.month,
-    label: MONTH_LONG(r.month),
-    confirmed: r.confirmed,
-    estimated: r.estimated,
+  const tableRows: ProfitTableRow[] = descending.map((r) => {
+    const net = r.netConfirmed + r.netEstimated;
+    return {
+      month: r.month,
+      label: MONTH_LONG(r.month),
+      creator: r.creatorConfirmed + r.creatorEstimated,
+      isEstimated: r.creatorConfirmed === 0 && r.creatorEstimated > 0,
+      gross: r.grossTotal,
+      partnerFee: r.partnerFeeTotal,
+      net,
+      perFounder: net * FOUNDER_SHARE_PCT,
+    };
+  });
+
+  const splitRows: PodcastSplitRow[] = podcasts.map((p) => ({
+    id: p.id,
+    title: p.title,
+    grossSharePct: Math.round(p.gross_share_pct * 1000) / 10,
+    partnerFeePct: Math.round(p.partner_fee_pct * 1000) / 10,
   }));
 
   return (
@@ -117,15 +162,8 @@ export default async function ProfitPage() {
           Profit
         </h1>
         <p className="text-[14px] text-ink-500 mt-1.5 max-w-2xl">
-          What each founder keeps. We take{" "}
-          <span className="font-medium text-ink-900">
-            {Math.round(GROSS_SHARE_PCT * 100)}%
-          </span>{" "}
-          of creator revenue,{" "}
-          <span className="font-medium text-ink-900">
-            {Math.round(PARTNER_FEE_PCT * 100)}%
-          </span>{" "}
-          of that goes to partners, and the company net splits{" "}
+          What each founder keeps. Each podcast has its own gross share and
+          partner fee (set below); the company net then splits{" "}
           <span className="font-medium text-ink-900">
             {FOUNDER_COUNT} ways evenly
           </span>{" "}
@@ -181,6 +219,30 @@ export default async function ProfitPage() {
         <Card>
           <CardBody className="p-0">
             <ProfitTable rows={tableRows} />
+          </CardBody>
+        </Card>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+            Revenue splits per podcast
+          </h2>
+          <p className="text-[13px] text-ink-500 mt-1 max-w-2xl">
+            Gross share is the cut we take of each show&apos;s creator
+            revenue; partner fee is the slice of that cut paid to partners.
+            Changes apply to the figures above.
+          </p>
+        </div>
+        <Card>
+          <CardBody className="p-0">
+            {splitRows.length === 0 ? (
+              <div className="p-7 text-sm text-ink-500">
+                No active podcasts yet. Run a sync from the Admin page.
+              </div>
+            ) : (
+              <PodcastSplitsTable rows={splitRows} />
+            )}
           </CardBody>
         </Card>
       </section>

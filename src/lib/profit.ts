@@ -20,16 +20,32 @@ export const FOUNDER_SHARE_PCT = 0.5;     // Each founder's slice of company net
 
 export const FOUNDER_COUNT = Math.round(1 / FOUNDER_SHARE_PCT); // 2 with 50% split
 
-export function splitRevenue(creatorRevenue: number): {
+export type RevenueSplit = {
   creator: number;
   gross: number;
   partnerFee: number;
   net: number;
   perFounder: number;
-} {
-  const gross = creatorRevenue * GROSS_SHARE_PCT;
-  const partnerFee = gross * PARTNER_FEE_PCT;
+};
+
+/**
+ * Split using custom per-podcast percentages. `grossSharePct` and
+ * `partnerFeePct` are fractions in [0, 1]. Founder share stays global
+ * (it's how company net divides between founders, not a deal term).
+ */
+export function splitRevenueWith(
+  creatorRevenue: number,
+  grossSharePct: number,
+  partnerFeePct: number,
+): RevenueSplit {
+  const gross = creatorRevenue * grossSharePct;
+  const partnerFee = gross * partnerFeePct;
   const net = gross - partnerFee;
   const perFounder = net * FOUNDER_SHARE_PCT;
   return { creator: creatorRevenue, gross, partnerFee, net, perFounder };
+}
+
+/** Split using the global default percentages. */
+export function splitRevenue(creatorRevenue: number): RevenueSplit {
+  return splitRevenueWith(creatorRevenue, GROSS_SHARE_PCT, PARTNER_FEE_PCT);
 }

@@ -14,6 +14,7 @@ export type AuditAction =
   | "access.revoke"
   | "access.level.change"
   | "podcast.sync"
+  | "podcast.splits.change"
   | "auth.login"
   | "auth.logout";
 

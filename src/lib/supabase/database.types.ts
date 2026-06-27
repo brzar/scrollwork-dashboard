@@ -68,6 +68,8 @@ export interface Database {
           image_url: string | null;
           network_id: string | null;
           active: boolean;
+          gross_share_pct: number;
+          partner_fee_pct: number;
           created_at: string;
           updated_at: string;
         };
@@ -80,6 +82,8 @@ export interface Database {
           image_url?: string | null;
           network_id?: string | null;
           active?: boolean;
+          gross_share_pct?: number;
+          partner_fee_pct?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -92,6 +96,8 @@ export interface Database {
           image_url?: string | null;
           network_id?: string | null;
           active?: boolean;
+          gross_share_pct?: number;
+          partner_fee_pct?: number;
           created_at?: string;
           updated_at?: string;
         };
