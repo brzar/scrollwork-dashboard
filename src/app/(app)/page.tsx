@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card, CardBody } from "@/components/ui/Card";
 import { MetricCard, buildMetric } from "@/components/MetricCard";
@@ -228,18 +227,6 @@ export default async function Overview({
             )}
           </CardBody>
         </Card>
-        <p className="text-[12px] text-ink-500">
-          Revenue here is an estimate from each podcast's trailing CPM × recent
-          delivery. Your earnings show {Math.round(CREATOR_SHARE_PCT * 100)}% of
-          gross revenue. RPM is revenue per 1,000 streams.{" "}
-          <Link
-            href="/monthly"
-            className="font-medium text-ink-900 hover:underline underline-offset-2"
-          >
-            Revenue
-          </Link>{" "}
-          has confirmed monthly totals.
-        </p>
       </section>
     </div>
   );
