@@ -1,14 +1,15 @@
 name: Megaphone data sync
 
-# Pulls fresh podcasts + metrics from Megaphone into Supabase using the
-# stored session (no browser needed). This is what keeps the live
-# dashboard's numbers current. Cheap + fast — just two authenticated
-# requests to the deployed app.
+# Keeps the live dashboard's numbers current. Runs entirely on GitHub's
+# servers — no local machine needed.
 #
-# Cadence: every 30 minutes fits GitHub's free Actions tier (a 10-minute
-# cadence would exceed the 2,000 free minutes/month — see the note below).
-# To go more frequent, either bump the cron here and accept the minutes,
-# or run sync-metrics from a Vercel Pro cron instead.
+# - Podcasts: a quick authenticated request to the deployed app (fast,
+#   fits the serverless limit).
+# - Metrics: run directly here in Node (no serverless time limit), so even
+#   slow Megaphone accounts sync fully. Reads the stored session from
+#   Supabase — no Megaphone API token needed.
+#
+# Cadence: every 30 minutes fits GitHub's free Actions tier.
 
 on:
   schedule:
@@ -22,29 +23,26 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      APP_URL: ${{ secrets.APP_URL }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    timeout-minutes: 15
     steps:
-      - name: Sync podcasts
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Sync podcasts (via deployed app)
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          code=$(curl -sS -L --max-time 150 -o /tmp/out -w "%{http_code}" \
+          code=$(curl -sS -L --max-time 120 -o /tmp/out -w "%{http_code}" \
             -X GET "$APP_URL/api/admin/sync" \
             -H "Authorization: Bearer $CRON_SECRET")
-          echo "HTTP $code"; cat /tmp/out; echo
+          echo "podcasts: HTTP $code"; cat /tmp/out; echo
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
-      - name: Sync metrics (sliced per account to stay under the function limit)
-        run: |
-          fail=0
-          slices=4
-          for acct in primary secondary; do
-            for i in $(seq 0 $((slices - 1))); do
-              code=$(curl -sS -L --max-time 150 -o /tmp/out -w "%{http_code}" \
-                -X GET "$APP_URL/api/admin/sync-metrics?account=$acct&slice=$i&slices=$slices" \
-                -H "Authorization: Bearer $CRON_SECRET")
-              echo "[$acct $((i+1))/$slices] HTTP $code"; cat /tmp/out; echo
-              { [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; } || fail=1
-            done
-          done
-          exit $fail
+      - name: Sync metrics (in-runner, no time limit)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run megaphone:sync-metrics

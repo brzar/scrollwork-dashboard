@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "megaphone:auth": "tsx scripts/megaphone-auth.ts",
-    "megaphone:refresh": "tsx scripts/megaphone-refresh.ts"
+    "megaphone:refresh": "tsx scripts/megaphone-refresh.ts",
+    "megaphone:sync-metrics": "tsx scripts/megaphone-sync-metrics.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
