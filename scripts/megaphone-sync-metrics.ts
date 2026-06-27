@@ -278,6 +278,22 @@ async function main() {
     Array.from({ length: Math.min(CONCURRENCY, list.length) }, () => worker()),
   );
 
+  // Record the run so the admin panel can track auto-sync health.
+  const durationMs = Date.now() - now.getTime();
+  await supabase.from("audit_log").insert({
+    action: "metrics.sync",
+    target_type: "system",
+    target_id: "cached_metric",
+    metadata: {
+      source: "github",
+      podcasts: list.length,
+      deliveryRows,
+      earningsRows,
+      failures,
+      durationMs,
+    },
+  });
+
   console.log(
     `✓ Synced ${list.length} podcasts · ${deliveryRows} delivery rows · ${earningsRows} earnings rows · ${failures.length} failures`,
   );

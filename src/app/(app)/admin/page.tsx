@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card, CardBody } from "@/components/ui/Card";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { Badge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/StatCard";
 import { getServerSession } from "@/lib/session-server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -19,21 +21,43 @@ export default async function AdminOverview() {
   if (!isAdmin(session)) redirect("/");
 
   const supabase = createAdminClient();
-  const [usersRes, podcastsRes, accessRes, lastSyncRes] = await Promise.all([
-    supabase.from("user_profile").select("user_id, role, active"),
-    supabase.from("podcast").select("id, active"),
-    supabase.from("user_podcast_access").select("user_id"),
-    supabase
-      .from("audit_log")
-      .select("created_at, metadata")
-      .eq("action", "metrics.sync")
-      .order("created_at", { ascending: false })
-      .limit(1),
-  ]);
+  const [usersRes, podcastsRes, accessRes, lastSyncRes, syncActivityRes] =
+    await Promise.all([
+      supabase.from("user_profile").select("user_id, role, active"),
+      supabase.from("podcast").select("id, active"),
+      supabase.from("user_podcast_access").select("user_id"),
+      supabase
+        .from("audit_log")
+        .select("created_at, metadata")
+        .eq("action", "metrics.sync")
+        .order("created_at", { ascending: false })
+        .limit(1),
+      // Recent sync + refresh runs for the activity panel.
+      supabase
+        .from("audit_log")
+        .select("created_at, action, metadata")
+        .in("action", ["metrics.sync", "megaphone.session.refresh"])
+        .order("created_at", { ascending: false })
+        .limit(12),
+    ]);
   const users = usersRes.data ?? [];
   const podcasts = podcastsRes.data ?? [];
   const access = accessRes.data ?? [];
   const lastSync = lastSyncRes.data?.[0];
+
+  type SyncEvent = {
+    created_at: string;
+    action: string;
+    metadata: {
+      source?: string;
+      deliveryRows?: number;
+      earningsRows?: number;
+      failures?: unknown[];
+      durationMs?: number;
+      results?: Array<{ account?: string; ok?: boolean }>;
+    } | null;
+  };
+  const syncActivity = (syncActivityRes.data ?? []) as SyncEvent[];
 
   // Megaphone data-source sessions (one row per account). Resilient to the
   // multi-account migration not being applied yet.
@@ -202,6 +226,83 @@ export default async function AdminOverview() {
           </CardBody>
         </Card>
       ) : null}
+
+      <section className="space-y-4">
+        <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+          Auto-sync activity
+        </h2>
+        <Card>
+          <CardBody className="p-0">
+            {syncActivity.length === 0 ? (
+              <div className="p-6 text-sm text-ink-500">
+                No sync runs recorded yet. The scheduled job logs each run here.
+              </div>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>When</TH>
+                    <TH>Job</TH>
+                    <TH>Source</TH>
+                    <TH>Result</TH>
+                    <TH className="text-right">Status</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {syncActivity.map((e, i) => {
+                    const m = e.metadata ?? {};
+                    const isRefresh = e.action === "megaphone.session.refresh";
+                    const failures = Array.isArray(m.failures)
+                      ? m.failures.length
+                      : 0;
+                    const refreshResults = Array.isArray(m.results)
+                      ? m.results
+                      : [];
+                    const refreshOk =
+                      refreshResults.length > 0 &&
+                      refreshResults.every((r) => r.ok);
+                    const ok = isRefresh
+                      ? refreshOk
+                      : (m.deliveryRows ?? 0) + (m.earningsRows ?? 0) > 0;
+                    return (
+                      <TR key={`${e.created_at}-${i}`}>
+                        <TD className="text-xs text-ink-500 whitespace-nowrap">
+                          {new Date(e.created_at).toLocaleString()}
+                        </TD>
+                        <TD className="text-[13px] text-ink-800">
+                          {isRefresh ? "Session refresh" : "Metrics sync"}
+                        </TD>
+                        <TD className="text-xs text-ink-500">
+                          {m.source ?? "—"}
+                        </TD>
+                        <TD className="text-[13px] text-ink-700 tabular-nums">
+                          {isRefresh
+                            ? refreshResults
+                                .map(
+                                  (r) =>
+                                    `${r.account ?? "?"}: ${r.ok ? "ok" : "fail"}`,
+                                )
+                                .join(" · ") || "—"
+                            : `${fmtNumber(m.deliveryRows ?? 0)} delivery · ${fmtNumber(
+                                m.earningsRows ?? 0,
+                              )} earnings${
+                                failures > 0 ? ` · ${failures} failed` : ""
+                              }`}
+                        </TD>
+                        <TD className="text-right">
+                          <Badge tone={ok ? "success" : "danger"}>
+                            {ok ? "ok" : "issue"}
+                          </Badge>
+                        </TD>
+                      </TR>
+                    );
+                  })}
+                </TBody>
+              </Table>
+            )}
+          </CardBody>
+        </Card>
+      </section>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Link href="/admin/users" className="group">

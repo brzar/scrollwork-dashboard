@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
 
     // Pull each account's podcasts and tag rows with that account so the
     // metrics sync later knows which session to use per show.
+    // Note: we deliberately do NOT set `active` here. On insert it gets the
+    // column default (true); on conflict it's left untouched, so a podcast
+    // an admin has manually deactivated stays deactivated across syncs.
     const rows: Array<{
       megaphone_id: string;
       title: string;
@@ -66,7 +69,6 @@ export async function POST(req: NextRequest) {
       author: string | null;
       image_url: string | null;
       network_id: string | null;
-      active: boolean;
       megaphone_account: string;
     }> = [];
     for (const account of accounts) {
@@ -79,7 +81,6 @@ export async function POST(req: NextRequest) {
           author: p.author ?? null,
           image_url: p.imageFile ?? null,
           network_id: account.networkId,
-          active: true,
           megaphone_account: account.key,
         });
       }
