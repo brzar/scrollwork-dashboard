@@ -19,7 +19,13 @@
 
 alter table public.invitation enable row level security;
 
+-- Drop the old blanket policy AND the new ones (so this migration is
+-- idempotent and safe to re-run in the SQL editor).
 drop policy if exists "invitation admin write" on public.invitation;
+drop policy if exists "invitation super_admin write" on public.invitation;
+drop policy if exists "invitation admin insert non-super" on public.invitation;
+drop policy if exists "invitation admin update non-super" on public.invitation;
+drop policy if exists "invitation admin delete non-super" on public.invitation;
 
 create policy "invitation super_admin write"
   on public.invitation for all
