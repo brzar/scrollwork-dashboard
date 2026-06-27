@@ -6,14 +6,20 @@ import {
   requireSameOrigin,
   safeError,
 } from "@/lib/security";
-import { canManagePodcastAccess, ACCESS_LEVELS } from "@/lib/permissions";
+import {
+  canManagePodcastAccess,
+  ACCESS_LEVELS,
+  type AccessLevel,
+} from "@/lib/permissions";
 import { writeAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
 const GrantSchema = z.object({
   podcast_id: z.string().uuid(),
-  access_level: z.enum(ACCESS_LEVELS as [string, ...string[]]).default("read"),
+  access_level: z
+    .enum(ACCESS_LEVELS as [AccessLevel, ...AccessLevel[]])
+    .default("read"),
 });
 
 /**

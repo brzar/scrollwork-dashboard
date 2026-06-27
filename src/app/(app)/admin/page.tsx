@@ -40,6 +40,14 @@ export default async function AdminOverview() {
   const access = accessRes.data ?? [];
   const sessionInfo = sessionRes.data;
   const lastSync = lastSyncRes.data?.[0];
+  // metadata is jsonb (typed as Json). Narrow to the shape the sync route
+  // writes so we can read the summary counts without `any`.
+  const syncMeta = (lastSync?.metadata ?? null) as {
+    podcasts?: number;
+    deliveryRows?: number;
+    earningsRows?: number;
+    failures?: unknown[];
+  } | null;
 
   const showRefresh = isSuperAdmin(session) && !!sessionInfo?.storage_state;
   const theme = isSuperAdmin(session) ? await resolveTheme() : null;
@@ -92,14 +100,14 @@ export default async function AdminOverview() {
                 ? new Date(lastSync.created_at).toLocaleString()
                 : "Never"}
             </div>
-            {lastSync?.metadata ? (
+            {syncMeta ? (
               <div className="text-xs text-ink-500 mt-1">
-                {lastSync.metadata.podcasts ?? 0} podcasts ·{" "}
-                {lastSync.metadata.deliveryRows ?? 0} delivery rows ·{" "}
-                {lastSync.metadata.earningsRows ?? 0} earnings rows
-                {(lastSync.metadata.failures?.length ?? 0) > 0 ? (
+                {syncMeta.podcasts ?? 0} podcasts ·{" "}
+                {syncMeta.deliveryRows ?? 0} delivery rows ·{" "}
+                {syncMeta.earningsRows ?? 0} earnings rows
+                {(syncMeta.failures?.length ?? 0) > 0 ? (
                   <span className="text-amber-700">
-                    {" "}· {lastSync.metadata.failures.length} failures
+                    {" "}· {syncMeta.failures!.length} failures
                   </span>
                 ) : null}
               </div>

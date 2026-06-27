@@ -7,19 +7,27 @@ import {
   rateLimit,
   safeError,
 } from "@/lib/security";
-import { canManageUsers, ROLES, ACCESS_LEVELS } from "@/lib/permissions";
+import {
+  canManageUsers,
+  ROLES,
+  ACCESS_LEVELS,
+  type Role,
+  type AccessLevel,
+} from "@/lib/permissions";
 import { writeAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
 const PodcastGrant = z.object({
   podcast_id: z.string().uuid(),
-  access_level: z.enum(ACCESS_LEVELS as [string, ...string[]]).default("read"),
+  access_level: z
+    .enum(ACCESS_LEVELS as [AccessLevel, ...AccessLevel[]])
+    .default("read"),
 });
 
 const InviteSchema = z.object({
   email: z.string().email().max(254),
-  role: z.enum(ROLES as [string, ...string[]]),
+  role: z.enum(ROLES as [Role, ...Role[]]),
   /**
    * Optional pre-seeded podcast access. For new invites we stash this on
    * the invitation row and the auth trigger consumes it on first sign-in.

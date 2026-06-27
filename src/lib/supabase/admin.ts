@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { supabaseServiceKey, supabaseUrl } from "./env";
+import type { Database } from "./database.types";
 
 /**
  * Service-role Supabase client. BYPASSES ROW-LEVEL SECURITY.
@@ -13,11 +14,11 @@ import { supabaseServiceKey, supabaseUrl } from "./env";
  * NEVER import from a Client Component. The `server-only` import turns that
  * into a build-time error.
  */
-let cached: ReturnType<typeof createSupabaseClient> | null = null;
+let cached: ReturnType<typeof createSupabaseClient<Database>> | null = null;
 
 export function createAdminClient() {
   if (cached) return cached;
-  cached = createSupabaseClient(supabaseUrl(), supabaseServiceKey(), {
+  cached = createSupabaseClient<Database>(supabaseUrl(), supabaseServiceKey(), {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   return cached;

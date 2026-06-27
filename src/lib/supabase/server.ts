@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { supabaseAnonKey, supabaseUrl } from "./env";
+import type { Database } from "./database.types";
 
 /**
  * Supabase client for Server Components, Server Actions, and Route Handlers.
@@ -14,7 +15,7 @@ import { supabaseAnonKey, supabaseUrl } from "./env";
 export function createClient() {
   const cookieStore = cookies();
 
-  return createServerClient(supabaseUrl(), supabaseAnonKey(), {
+  return createServerClient<Database>(supabaseUrl(), supabaseAnonKey(), {
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value;

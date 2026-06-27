@@ -6,13 +6,18 @@ import {
   requireSameOrigin,
   safeError,
 } from "@/lib/security";
-import { canManageUsers, canChangeRoles, ROLES } from "@/lib/permissions";
+import {
+  canManageUsers,
+  canChangeRoles,
+  ROLES,
+  type Role,
+} from "@/lib/permissions";
 import { writeAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
 const PatchSchema = z.object({
-  role: z.enum(ROLES as [string, ...string[]]).optional(),
+  role: z.enum(ROLES as [Role, ...Role[]]).optional(),
   active: z.boolean().optional(),
 });
 
@@ -72,7 +77,7 @@ export async function PATCH(
     return safeError(403, "Only super admins can grant super-admin");
   }
 
-  const patch: Record<string, unknown> = {};
+  const patch: { role?: Role; active?: boolean } = {};
   if (role) patch.role = role;
   if (typeof active === "boolean") patch.active = active;
   if (Object.keys(patch).length === 0) return safeError(400, "No changes");

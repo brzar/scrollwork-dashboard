@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "./supabase/admin";
 import { getClientIp, getUserAgent } from "./security";
 import type { Session } from "./permissions";
+import type { Json } from "./supabase/database.types";
 
 export type AuditAction =
   | "user.invite"
@@ -21,7 +22,7 @@ export type AuditWriteInput = {
   action: AuditAction | string;
   targetType?: string | null;
   targetId?: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Json;
   req?: Request;
 };
 

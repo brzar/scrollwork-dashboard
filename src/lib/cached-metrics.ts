@@ -117,7 +117,7 @@ function deliveryRow(podcastId: string, p: DeliveryPoint) {
   return {
     podcast_id: podcastId,
     metric: "delivery",
-    granularity: "day",
+    granularity: "day" as const,
     bucket_start: p.date,
     bucket_end: p.date,
     value: {
@@ -138,7 +138,7 @@ function earningsRow(podcastId: string, p: EarningsPoint) {
   return {
     podcast_id: podcastId,
     metric: "earnings",
-    granularity: "month",
+    granularity: "month" as const,
     bucket_start: start,
     bucket_end: end,
     value: {
