@@ -12,6 +12,8 @@ import { readCachedEarnings } from "@/lib/cached-metrics";
 import {
   FOUNDER_COUNT,
   FOUNDER_SHARE_PCT,
+  GROSS_SHARE_PCT,
+  PARTNER_FEE_PCT,
   splitRevenueWith,
 } from "@/lib/profit";
 import { fmtCurrency } from "@/lib/format";
@@ -45,12 +47,39 @@ export default async function ProfitPage() {
   const ytdStart = isoDate(startOfYear(now));
 
   const admin = createAdminClient();
-  const { data: pods } = await admin
+  // Load podcasts with their per-show splits. If the splits migration
+  // hasn't been applied yet (columns missing), fall back to a basic query
+  // + global defaults so the profit view still works — the per-podcast
+  // editor just stays disabled until the migration runs.
+  type PodRow = {
+    id: string;
+    title: string;
+    gross_share_pct: number;
+    partner_fee_pct: number;
+  };
+  let podcasts: PodRow[] = [];
+  let splitsEnabled = true;
+  const withSplits = await admin
     .from("podcast")
     .select("id, title, gross_share_pct, partner_fee_pct")
     .eq("active", true)
     .order("title", { ascending: true });
-  const podcasts = pods ?? [];
+  if (withSplits.error) {
+    splitsEnabled = false;
+    const basic = await admin
+      .from("podcast")
+      .select("id, title")
+      .eq("active", true)
+      .order("title", { ascending: true });
+    podcasts = (basic.data ?? []).map((p) => ({
+      id: p.id,
+      title: p.title,
+      gross_share_pct: GROSS_SHARE_PCT,
+      partner_fee_pct: PARTNER_FEE_PCT,
+    }));
+  } else {
+    podcasts = withSplits.data ?? [];
+  }
   const podIds = podcasts.map((p) => p.id);
   const splitOf = new Map(
     podcasts.map((p) => [
@@ -236,7 +265,15 @@ export default async function ProfitPage() {
         </div>
         <Card>
           <CardBody className="p-0">
-            {splitRows.length === 0 ? (
+            {!splitsEnabled ? (
+              <div className="p-7 text-sm text-ink-500">
+                Per-podcast splits aren&apos;t enabled yet. Apply the{" "}
+                <code className="text-ink-700">podcast_splits</code> migration
+                to your database, then refresh. Figures above use the default{" "}
+                {Math.round(GROSS_SHARE_PCT * 100)}% /{" "}
+                {Math.round(PARTNER_FEE_PCT * 100)}% split until then.
+              </div>
+            ) : splitRows.length === 0 ? (
               <div className="p-7 text-sm text-ink-500">
                 No active podcasts yet. Run a sync from the Admin page.
               </div>
