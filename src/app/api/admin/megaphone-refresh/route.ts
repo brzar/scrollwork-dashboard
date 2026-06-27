@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
             fullName: null,
             avatarUrl: null,
             role: actor.role,
+            partnerName: null,
           }
         : null,
       action: "megaphone.session.refresh",

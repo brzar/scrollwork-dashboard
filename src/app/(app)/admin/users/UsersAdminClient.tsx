@@ -24,6 +24,7 @@ type User = {
   role: Role;
   active: boolean;
   created_at: string;
+  partner_name: string | null;
 };
 
 type Podcast = { id: string; title: string };
@@ -43,17 +44,20 @@ export function UsersAdminClient({
   podcasts,
   access,
   invites,
+  partnerNames,
 }: {
   sessionRole: Role;
   users: User[];
   podcasts: Podcast[];
   access: Access[];
   invites: Invite[];
+  partnerNames: string[];
 }) {
   const router = useRouter();
   const [active, setActive] = useState<User | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("viewer");
+  const [invitePartner, setInvitePartner] = useState("");
   // Per-podcast access level being granted in the invite form.
   // Keyed by podcast_id; absence = no access (default).
   const [invitePodcasts, setInvitePodcasts] = useState<
@@ -115,12 +119,22 @@ export function UsersAdminClient({
           email: inviteEmail,
           role: inviteRole,
           podcasts,
+          partner_name: invitePartner || null,
         }),
       },
       "invite",
     );
     setInviteEmail("");
     setInvitePodcasts(new Map());
+    setInvitePartner("");
+  }
+
+  async function onChangePartner(u: User, partner_name: string) {
+    await call(
+      `/api/admin/users/${u.user_id}`,
+      { method: "PATCH", body: JSON.stringify({ partner_name: partner_name || null }) },
+      `partner-${u.user_id}`,
+    );
   }
 
   function setPodcastLevel(podcastId: string, level: AccessLevel | "none") {
@@ -220,6 +234,29 @@ export function UsersAdminClient({
               </Button>
             </div>
 
+            {partnerNames.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-500 whitespace-nowrap">
+                  Partner identity
+                </span>
+                <Select
+                  value={invitePartner}
+                  onChange={(e) => setInvitePartner(e.target.value)}
+                  className="max-w-[220px]"
+                >
+                  <option value="">— none —</option>
+                  {partnerNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </Select>
+                <span className="text-[11.5px] text-ink-400">
+                  links their account to a split-mode payout name
+                </span>
+              </div>
+            ) : null}
+
             {isPerPodcastRole ? (
               <div className="border border-ink-200 rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-ink-50 border-b border-ink-100">
@@ -301,6 +338,7 @@ export function UsersAdminClient({
               <TR>
                 <TH>User</TH>
                 <TH>Role</TH>
+                {partnerNames.length > 0 ? <TH>Partner</TH> : null}
                 <TH>Status</TH>
                 <TH>Podcasts</TH>
                 <TH></TH>
@@ -341,6 +379,29 @@ export function UsersAdminClient({
                         </Badge>
                       )}
                     </TD>
+                    {partnerNames.length > 0 ? (
+                      <TD>
+                        <Select
+                          value={u.partner_name ?? ""}
+                          onChange={(e) => onChangePartner(u, e.target.value)}
+                          disabled={busy === `partner-${u.user_id}`}
+                        >
+                          <option value="">— none —</option>
+                          {partnerNames.map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                          {/* Preserve a custom value not in the current modes. */}
+                          {u.partner_name &&
+                          !partnerNames.includes(u.partner_name) ? (
+                            <option value={u.partner_name}>
+                              {u.partner_name}
+                            </option>
+                          ) : null}
+                        </Select>
+                      </TD>
+                    ) : null}
                     <TD>
                       {u.active ? (
                         <Badge tone="success">Active</Badge>

@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
             fullName: null,
             avatarUrl: null,
             role: session.role,
+            partnerName: null,
           }
         : null,
       action: "metrics.sync",

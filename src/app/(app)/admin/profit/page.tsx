@@ -182,7 +182,10 @@ export default async function ProfitPage() {
     }
   }
 
-  const ownerByMonth = payouts.get(OWNER_NAME) ?? new Map();
+  // Personalize "your take" to the logged-in user's partner identity
+  // (King / Lazarus / Jonathan). Falls back to the owner when unmapped.
+  const viewerName = session.partnerName ?? OWNER_NAME;
+  const ownerByMonth = payouts.get(viewerName) ?? new Map();
   const ownerAt = (m: string) => {
     const x = ownerByMonth.get(m);
     return x ? x.c + x.e : 0;
@@ -341,7 +344,7 @@ export default async function ProfitPage() {
                     <TR key={p.name}>
                       <TD className="font-medium text-ink-900">
                         {p.name}
-                        {p.name === OWNER_NAME ? (
+                        {p.name === viewerName ? (
                           <span className="text-ink-400"> (you)</span>
                         ) : null}
                       </TD>

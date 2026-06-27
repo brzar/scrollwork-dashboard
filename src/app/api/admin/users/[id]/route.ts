@@ -19,6 +19,7 @@ export const runtime = "nodejs";
 const PatchSchema = z.object({
   role: z.enum(ROLES as [Role, ...Role[]]).optional(),
   active: z.boolean().optional(),
+  partner_name: z.string().trim().max(80).nullable().optional(),
 });
 
 /**
@@ -38,7 +39,7 @@ export async function PATCH(
   const raw = await req.json().catch(() => ({}));
   const parsed = PatchSchema.safeParse(raw);
   if (!parsed.success) return safeError(400, "Invalid update");
-  const { role, active } = parsed.data;
+  const { role, active, partner_name } = parsed.data;
 
   if (role && !canChangeRoles(auth.session)) {
     return safeError(403, "Only super admins can change roles");
@@ -77,9 +78,14 @@ export async function PATCH(
     return safeError(403, "Only super admins can grant super-admin");
   }
 
-  const patch: { role?: Role; active?: boolean } = {};
+  const patch: {
+    role?: Role;
+    active?: boolean;
+    partner_name?: string | null;
+  } = {};
   if (role) patch.role = role;
   if (typeof active === "boolean") patch.active = active;
+  if (partner_name !== undefined) patch.partner_name = partner_name || null;
   if (Object.keys(patch).length === 0) return safeError(400, "No changes");
 
   const { error } = await supabase
@@ -104,6 +110,16 @@ export async function PATCH(
       action: active ? "user.reactivate" : "user.deactivate",
       targetType: "user",
       targetId: params.id,
+      req,
+    });
+  }
+  if (partner_name !== undefined) {
+    await writeAudit({
+      session: auth.session,
+      action: "user.partner.change",
+      targetType: "user",
+      targetId: params.id,
+      metadata: { partner_name: partner_name || null },
       req,
     });
   }

@@ -29,6 +29,8 @@ export type Session = {
   fullName: string | null;
   avatarUrl: string | null;
   role: Role;
+  /** Beneficiary name this account maps to in split modes (e.g. "King"). */
+  partnerName: string | null;
 };
 
 // ---- High-level role checks ----------------------------------------------

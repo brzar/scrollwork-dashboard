@@ -144,6 +144,7 @@ export async function GET(req: NextRequest) {
           fullName: null,
           avatarUrl: null,
           role: "viewer",
+          partnerName: null,
         }
       : null,
     action: "auth.login",

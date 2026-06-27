@@ -34,6 +34,8 @@ const InviteSchema = z.object({
    * For existing users we apply it immediately.
    */
   podcasts: z.array(PodcastGrant).max(500).optional().default([]),
+  /** Beneficiary name this account maps to in split modes (e.g. "King"). */
+  partner_name: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function GET() {
@@ -102,9 +104,14 @@ export async function POST(req: Request) {
     ) {
       return safeError(400, "Refusing to change your own role");
     }
+    const update: { role: Role; active: boolean; partner_name?: string | null } =
+      { role: parsed.data.role, active: true };
+    if (parsed.data.partner_name !== undefined) {
+      update.partner_name = parsed.data.partner_name || null;
+    }
     const { error } = await supabase
       .from("user_profile")
-      .update({ role: parsed.data.role, active: true })
+      .update(update)
       .eq("user_id", existing.user_id);
     if (error) return safeError(500, "Failed to update role", error);
 
@@ -141,6 +148,7 @@ export async function POST(req: Request) {
       role: parsed.data.role,
       invited_by: auth.session.userId,
       podcast_access: podcasts,
+      partner_name: parsed.data.partner_name || null,
     })
     .select("id")
     .single();

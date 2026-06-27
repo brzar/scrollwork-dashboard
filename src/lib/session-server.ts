@@ -21,7 +21,7 @@ export async function getServerSession(): Promise<Session | null> {
 
   const { data: profile } = await supabase
     .from("user_profile")
-    .select("email, full_name, avatar_url, role, active")
+    .select("email, full_name, avatar_url, role, active, partner_name")
     .eq("user_id", data.user.id)
     .maybeSingle();
 
@@ -37,5 +37,6 @@ export async function getServerSession(): Promise<Session | null> {
     fullName: profile.full_name ?? null,
     avatarUrl: profile.avatar_url ?? null,
     role,
+    partnerName: profile.partner_name ?? null,
   };
 }
