@@ -70,6 +70,9 @@ export interface Database {
           active: boolean;
           gross_share_pct: number;
           partner_fee_pct: number;
+          monetizable: boolean;
+          split_mode_id: string | null;
+          creator_share_pct: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -84,6 +87,9 @@ export interface Database {
           active?: boolean;
           gross_share_pct?: number;
           partner_fee_pct?: number;
+          monetizable?: boolean;
+          split_mode_id?: string | null;
+          creator_share_pct?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -98,6 +104,42 @@ export interface Database {
           active?: boolean;
           gross_share_pct?: number;
           partner_fee_pct?: number;
+          monetizable?: boolean;
+          split_mode_id?: string | null;
+          creator_share_pct?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      split_mode: {
+        Row: {
+          id: string;
+          name: string;
+          portal: string | null;
+          portal_fee_pct: number;
+          default_creator_share_pct: number;
+          beneficiaries: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          portal?: string | null;
+          portal_fee_pct?: number;
+          default_creator_share_pct?: number;
+          beneficiaries?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          portal?: string | null;
+          portal_fee_pct?: number;
+          default_creator_share_pct?: number;
+          beneficiaries?: Json;
           created_at?: string;
           updated_at?: string;
         };

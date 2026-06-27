@@ -10,29 +10,22 @@ export type ProfitTableRow = {
   month: string;
   /** Human-readable label, e.g. 'January 2026' */
   label: string;
-  /** Total creator revenue (confirmed + estimated). */
-  creator: number;
   /** True when this month is estimate-only (current month). */
   isEstimated: boolean;
-  /** Our gross, summed across each podcast's own split. */
-  gross: number;
-  /** Partner fee, summed across each podcast's own split. */
-  partnerFee: number;
-  /** Company net after partner fees. */
-  net: number;
-  /** Each founder's take-home. */
-  perFounder: number;
+  /** Total revenue across monetizable podcasts. */
+  revenue: number;
+  /** Creator payouts. */
+  creator: number;
+  /** Portal fees. */
+  portal: number;
+  /** Owner (your) take. */
+  yourTake: number;
+  /** Everyone else's payouts combined. */
+  partners: number;
 };
 
 const COLLAPSED = 3;
 
-/**
- * Profit table with collapse/expand. Shows the per-month breakdown of
- * creator revenue → our gross → partner fee → our net take-home.
- *
- * Identical interaction pattern to the EarningsTable on /monthly — first
- * COLLAPSED rows are visible, the rest expand on click.
- */
 export function ProfitTable({ rows }: { rows: ProfitTableRow[] }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? rows : rows.slice(0, COLLAPSED);
@@ -44,11 +37,11 @@ export function ProfitTable({ rows }: { rows: ProfitTableRow[] }) {
         <THead>
           <TR>
             <TH>Month</TH>
-            <TH className="text-right">Creator revenue</TH>
-            <TH className="text-right">Our gross</TH>
-            <TH className="text-right">Partner fee</TH>
-            <TH className="text-right">Company net</TH>
-            <TH className="text-right">Per founder</TH>
+            <TH className="text-right">Revenue</TH>
+            <TH className="text-right">Creator</TH>
+            <TH className="text-right">Portal</TH>
+            <TH className="text-right">Partners</TH>
+            <TH className="text-right">Your take</TH>
           </TR>
         </THead>
         <TBody>
@@ -63,19 +56,19 @@ export function ProfitTable({ rows }: { rows: ProfitTableRow[] }) {
                 </div>
               </TD>
               <TD className="text-right tabular-nums">
-                {r.creator > 0 ? fmtCurrency(r.creator) : "—"}
-              </TD>
-              <TD className="text-right tabular-nums text-ink-700">
-                {r.creator > 0 ? fmtCurrency(r.gross) : "—"}
+                {r.revenue > 0 ? fmtCurrency(r.revenue) : "—"}
               </TD>
               <TD className="text-right tabular-nums text-ink-600">
-                {r.creator > 0 ? `−${fmtCurrency(r.partnerFee)}` : "—"}
+                {r.revenue > 0 ? fmtCurrency(r.creator) : "—"}
+              </TD>
+              <TD className="text-right tabular-nums text-ink-600">
+                {r.portal > 0 ? `−${fmtCurrency(r.portal)}` : "—"}
               </TD>
               <TD className="text-right tabular-nums text-ink-700">
-                {r.creator > 0 ? fmtCurrency(r.net) : "—"}
+                {r.partners > 0 ? fmtCurrency(r.partners) : "—"}
               </TD>
               <TD className="text-right tabular-nums font-semibold text-emerald-700">
-                {r.creator > 0 ? fmtCurrency(r.perFounder) : "—"}
+                {r.yourTake > 0 ? fmtCurrency(r.yourTake) : "—"}
               </TD>
             </TR>
           ))}

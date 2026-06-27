@@ -5,35 +5,39 @@ import {
   EarningsBarChart,
   type EarningsBarPoint,
 } from "@/components/charts/EarningsBarChart";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { getServerSession } from "@/lib/session-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/permissions";
 import { readCachedEarnings } from "@/lib/cached-metrics";
 import {
-  FOUNDER_SHARE_PCT,
-  GROSS_SHARE_PCT,
-  PARTNER_FEE_PCT,
-  splitRevenueWith,
-} from "@/lib/profit";
+  OWNER_NAME,
+  computeSplit,
+  parseBeneficiaries,
+  type SplitMode,
+} from "@/lib/split";
 import { fmtCurrency } from "@/lib/format";
 import {
   startOfYear,
   startOfMonth,
   endOfMonth,
-  subMonths,
   subYears,
   parseISO,
   format,
 } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
 import { ProfitTable, type ProfitTableRow } from "./ProfitTable";
-import { PodcastSplitsTable, type PodcastSplitRow } from "./PodcastSplitsTable";
-import { FounderShareControl } from "./FounderShareControl";
+import {
+  PodcastConfigTable,
+  type PodcastConfigRow,
+  type ModeOption,
+} from "./PodcastConfigTable";
 
 export const dynamic = "force-dynamic";
 
 const MONTH_SHORT = (iso: string) => format(parseISO(iso), "MMM yyyy");
 const MONTH_LONG = (iso: string) => format(parseISO(iso), "MMMM yyyy");
+const pctLabel = (frac: number) => Math.round(frac * 1000) / 10;
 
 export default async function ProfitPage() {
   const session = await getServerSession();
@@ -47,25 +51,48 @@ export default async function ProfitPage() {
   const ytdStart = isoDate(startOfYear(now));
 
   const admin = createAdminClient();
-  // Load podcasts with their per-show splits. If the splits migration
-  // hasn't been applied yet (columns missing), fall back to a basic query
-  // + global defaults so the profit view still works — the per-podcast
-  // editor just stays disabled until the migration runs.
+
+  // ---- Split modes -----------------------------------------------------
+  // configEnabled flips false if the split-modes migration hasn't run yet;
+  // we then show a banner and fall back to a revenue-only view.
+  let configEnabled = true;
+  let modes: SplitMode[] = [];
+  const modesRes = await admin
+    .from("split_mode")
+    .select(
+      "id, name, portal, portal_fee_pct, default_creator_share_pct, beneficiaries",
+    )
+    .order("name", { ascending: true });
+  if (modesRes.error) {
+    configEnabled = false;
+  } else {
+    modes = (modesRes.data ?? []).map((m) => ({
+      id: m.id,
+      name: m.name,
+      portal: m.portal,
+      portalFeePct: m.portal_fee_pct,
+      defaultCreatorSharePct: m.default_creator_share_pct,
+      beneficiaries: parseBeneficiaries(m.beneficiaries),
+    }));
+  }
+  const modeById = new Map(modes.map((m) => [m.id, m]));
+
+  // ---- Podcasts + config ----------------------------------------------
   type PodRow = {
     id: string;
     title: string;
-    gross_share_pct: number;
-    partner_fee_pct: number;
+    monetizable: boolean;
+    split_mode_id: string | null;
+    creator_share_pct: number | null;
   };
   let podcasts: PodRow[] = [];
-  let splitsEnabled = true;
-  const withSplits = await admin
+  const withCfg = await admin
     .from("podcast")
-    .select("id, title, gross_share_pct, partner_fee_pct")
+    .select("id, title, monetizable, split_mode_id, creator_share_pct")
     .eq("active", true)
     .order("title", { ascending: true });
-  if (withSplits.error) {
-    splitsEnabled = false;
+  if (withCfg.error) {
+    configEnabled = false;
     const basic = await admin
       .from("podcast")
       .select("id, title")
@@ -74,176 +101,205 @@ export default async function ProfitPage() {
     podcasts = (basic.data ?? []).map((p) => ({
       id: p.id,
       title: p.title,
-      gross_share_pct: GROSS_SHARE_PCT,
-      partner_fee_pct: PARTNER_FEE_PCT,
+      monetizable: true,
+      split_mode_id: null,
+      creator_share_pct: null,
     }));
   } else {
-    podcasts = withSplits.data ?? [];
+    podcasts = withCfg.data ?? [];
   }
+  const cfgById = new Map(podcasts.map((p) => [p.id, p]));
   const podIds = podcasts.map((p) => p.id);
-  const splitOf = new Map(
-    podcasts.map((p) => [
-      p.id,
-      { gross: p.gross_share_pct, partner: p.partner_fee_pct },
-    ]),
-  );
-
-  // Founder share (% of company net per founder). Stored on app_settings;
-  // falls back to the global default if the migration isn't applied yet.
-  let founderShare = FOUNDER_SHARE_PCT;
-  let founderShareEnabled = true;
-  const settings = await admin
-    .from("app_settings")
-    .select("founder_share_pct")
-    .eq("id", true)
-    .maybeSingle();
-  if (settings.error) {
-    founderShareEnabled = false;
-  } else if (settings.data?.founder_share_pct != null) {
-    founderShare = settings.data.founder_share_pct;
-  }
 
   const earnings = await readCachedEarnings(podIds, queryStart, queryEnd);
 
-  // Roll up per month, applying EACH podcast's own split before summing.
-  // We track creator revenue (for display) and the post-split net,
-  // separated into confirmed vs. estimated so the chart + badges work.
-  type Row = {
+  // ---- Roll up ---------------------------------------------------------
+  // Per month: revenue / creator / portal across monetizable, mode-assigned
+  // podcasts. Payouts tracked per beneficiary (confirmed vs. estimated).
+  type MonthAgg = {
     month: string;
-    creatorConfirmed: number;
-    creatorEstimated: number;
-    grossTotal: number;
-    partnerFeeTotal: number;
-    netConfirmed: number;
-    netEstimated: number;
+    revConfirmed: number;
+    revEstimated: number;
+    creator: number;
+    portal: number;
   };
-  const map = new Map<string, Row>();
-  const get = (m: string): Row => {
+  const monthAgg = new Map<string, MonthAgg>();
+  const getMonth = (m: string): MonthAgg => {
     const r =
-      map.get(m) ??
+      monthAgg.get(m) ??
       ({
         month: m,
-        creatorConfirmed: 0,
-        creatorEstimated: 0,
-        grossTotal: 0,
-        partnerFeeTotal: 0,
-        netConfirmed: 0,
-        netEstimated: 0,
-      } satisfies Row);
-    map.set(m, r);
+        revConfirmed: 0,
+        revEstimated: 0,
+        creator: 0,
+        portal: 0,
+      } satisfies MonthAgg);
+    monthAgg.set(m, r);
     return r;
   };
+  // name -> month -> { confirmed, estimated }
+  const payouts = new Map<string, Map<string, { c: number; e: number }>>();
+  const addPayout = (
+    name: string,
+    month: string,
+    c: number,
+    e: number,
+  ) => {
+    let byMonth = payouts.get(name);
+    if (!byMonth) {
+      byMonth = new Map();
+      payouts.set(name, byMonth);
+    }
+    const cur = byMonth.get(month) ?? { c: 0, e: 0 };
+    cur.c += c;
+    cur.e += e;
+    byMonth.set(month, cur);
+  };
+
   for (const r of earnings.rows) {
+    const cfg = cfgById.get(r.podcastId);
+    if (!cfg || !cfg.monetizable) continue;
+    const mode = cfg.split_mode_id
+      ? modeById.get(cfg.split_mode_id)
+      : undefined;
+    if (!mode) continue; // unassigned — counted separately below
     const v = r.value ?? {};
-    const split = splitOf.get(r.podcastId) ?? { gross: 0.3, partner: 0.2 };
     const confirmed = Number(v.total ?? 0);
     const estimated = Number(v.totalEstimated ?? 0);
-    const sc = splitRevenueWith(confirmed, split.gross, split.partner);
-    const se = splitRevenueWith(estimated, split.gross, split.partner);
-    const row = get(r.date);
-    row.creatorConfirmed += confirmed;
-    row.creatorEstimated += estimated;
-    row.grossTotal += sc.gross + se.gross;
-    row.partnerFeeTotal += sc.partnerFee + se.partnerFee;
-    row.netConfirmed += sc.net;
-    row.netEstimated += se.net;
+    const sc = computeSplit(confirmed, mode, cfg.creator_share_pct);
+    const se = computeSplit(estimated, mode, cfg.creator_share_pct);
+    const agg = getMonth(r.date);
+    agg.revConfirmed += confirmed;
+    agg.revEstimated += estimated;
+    agg.creator += sc.creator + se.creator;
+    agg.portal += sc.portalFee + se.portalFee;
+    const names = new Set([
+      ...Object.keys(sc.payouts),
+      ...Object.keys(se.payouts),
+    ]);
+    for (const name of names) {
+      addPayout(name, r.date, sc.payouts[name] ?? 0, se.payouts[name] ?? 0);
+    }
   }
 
-  // Ascending for the chart, descending for the table.
-  const ascending = Array.from(map.values()).sort((a, b) =>
+  const ownerByMonth = payouts.get(OWNER_NAME) ?? new Map();
+  const ownerAt = (m: string) => {
+    const x = ownerByMonth.get(m);
+    return x ? x.c + x.e : 0;
+  };
+
+  const ascending = Array.from(monthAgg.values()).sort((a, b) =>
     a.month < b.month ? -1 : 1,
   );
   const descending = [...ascending].reverse();
 
-  // ---- Topline ---------------------------------------------------------
-  const thisMonth = map.get(thisMonthIso);
-  const thisMonthNet =
-    (thisMonth?.netConfirmed ?? 0) + (thisMonth?.netEstimated ?? 0);
-
+  // ---- Topline (your take) --------------------------------------------
+  const thisMonthOwner = ownerAt(thisMonthIso);
   const lastFinalized = descending.find(
-    (r) => r.month < thisMonthIso && r.creatorConfirmed > 0,
+    (r) => r.month < thisMonthIso && r.revConfirmed > 0,
   );
-  const lastFinalizedNet = lastFinalized ? lastFinalized.netConfirmed : 0;
+  const lastFinalizedOwner = lastFinalized
+    ? ownerByMonth.get(lastFinalized.month)?.c ?? 0
+    : 0;
+  const ytdMonths = ascending.filter((r) => r.month >= ytdStart);
+  const ytdOwner = ytdMonths.reduce((s, r) => s + ownerAt(r.month), 0);
 
-  const ytdRows = ascending.filter((r) => r.month >= ytdStart);
-  const ytdNetConfirmed = ytdRows.reduce((s, r) => s + r.netConfirmed, 0);
-  const ytdNetEstimated = ytdRows.reduce((s, r) => s + r.netEstimated, 0);
-  const ytdNet = ytdNetConfirmed + ytdNetEstimated;
+  // ---- Chart (your take per month) ------------------------------------
+  const chart: EarningsBarPoint[] = ascending.map((r) => {
+    const o = ownerByMonth.get(r.month) ?? { c: 0, e: 0 };
+    return { month: MONTH_SHORT(r.month), confirmed: o.c, estimated: o.e };
+  });
 
-  // Chart shows per-founder take-home so it lines up with the topline
-  // cards. Confirmed dark, estimated lighter on top.
-  const chart: EarningsBarPoint[] = ascending.map((r) => ({
-    month: MONTH_SHORT(r.month),
-    confirmed: r.netConfirmed * founderShare,
-    estimated: r.netEstimated * founderShare,
-  }));
-
+  // ---- Breakdown table -------------------------------------------------
   const tableRows: ProfitTableRow[] = descending.map((r) => {
-    const net = r.netConfirmed + r.netEstimated;
+    const revenue = r.revConfirmed + r.revEstimated;
+    const remaining = Math.max(0, revenue - r.creator - r.portal);
+    const yourTake = ownerAt(r.month);
     return {
       month: r.month,
       label: MONTH_LONG(r.month),
-      creator: r.creatorConfirmed + r.creatorEstimated,
-      isEstimated: r.creatorConfirmed === 0 && r.creatorEstimated > 0,
-      gross: r.grossTotal,
-      partnerFee: r.partnerFeeTotal,
-      net,
-      perFounder: net * founderShare,
+      isEstimated: r.revConfirmed === 0 && r.revEstimated > 0,
+      revenue,
+      creator: r.creator,
+      portal: r.portal,
+      yourTake,
+      partners: Math.max(0, remaining - yourTake),
     };
   });
 
-  const splitRows: PodcastSplitRow[] = podcasts.map((p) => ({
+  // ---- Payouts by person ----------------------------------------------
+  const peopleRows = Array.from(payouts.entries())
+    .map(([name, byMonth]) => {
+      let thisMonth = 0;
+      let ytd = 0;
+      for (const [month, amt] of byMonth) {
+        const total = amt.c + amt.e;
+        if (month === thisMonthIso) thisMonth += total;
+        if (month >= ytdStart) ytd += total;
+      }
+      return { name, thisMonth, ytd };
+    })
+    .sort((a, b) => b.ytd - a.ytd);
+
+  // ---- Config table ----------------------------------------------------
+  const modeOptions: ModeOption[] = modes.map((m) => ({
+    id: m.id,
+    name: m.name,
+    defaultCreatorPct: pctLabel(m.defaultCreatorSharePct),
+  }));
+  const configRows: PodcastConfigRow[] = podcasts.map((p) => ({
     id: p.id,
     title: p.title,
-    grossSharePct: Math.round(p.gross_share_pct * 1000) / 10,
-    partnerFeePct: Math.round(p.partner_fee_pct * 1000) / 10,
+    monetizable: p.monetizable,
+    splitModeId: p.split_mode_id,
+    creatorSharePct:
+      p.creator_share_pct == null ? null : pctLabel(p.creator_share_pct),
   }));
+  const unassignedCount = podcasts.filter(
+    (p) => p.monetizable && !p.split_mode_id,
+  ).length;
 
   return (
     <div className="animate-rise space-y-10">
-      <header className="pt-4 flex items-start justify-between gap-6 flex-wrap">
+      <header className="pt-4">
         <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight">
           Profit
         </h1>
-        <FounderShareControl
-          value={Math.round(founderShare * 1000) / 10}
-          disabled={!founderShareEnabled}
-        />
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          label={`${MONTH_LONG(thisMonthIso)} per founder`}
-          value={fmtCurrency(thisMonthNet * founderShare)}
-          hint={`${fmtCurrency(thisMonthNet)} company net · estimate`}
+          label={`${MONTH_LONG(thisMonthIso)} — your take`}
+          value={fmtCurrency(thisMonthOwner)}
+          hint="estimate"
         />
         <StatCard
           label={
             lastFinalized
-              ? `${MONTH_LONG(lastFinalized.month)} per founder`
-              : "Last confirmed per founder"
+              ? `${MONTH_LONG(lastFinalized.month)} — your take`
+              : "Last confirmed — your take"
           }
-          value={fmtCurrency(lastFinalizedNet * founderShare)}
-          hint={`${fmtCurrency(lastFinalizedNet)} company net · finalized`}
+          value={fmtCurrency(lastFinalizedOwner)}
+          hint="finalized"
         />
         <StatCard
-          label="YTD per founder"
-          value={fmtCurrency(ytdNet * founderShare)}
-          hint={`${fmtCurrency(ytdNet)} company net${
-            ytdNetEstimated > 0 ? " (incl. estimate)" : ""
-          }`}
+          label="YTD — your take"
+          value={fmtCurrency(ytdOwner)}
+          hint="confirmed + estimate"
         />
       </div>
 
       <section className="space-y-4">
         <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
-          Monthly per founder
+          Monthly — your take
         </h2>
         <Card>
           <CardBody className="p-7">
             {chart.length === 0 ? (
               <div className="h-[280px] flex items-center justify-center text-sm text-ink-500">
-                No data yet. Run a sync from the Admin page to populate.
+                {configEnabled
+                  ? "No revenue under an assigned split mode yet. Assign modes below."
+                  : "No data yet. Run a sync from the Admin page to populate."}
               </div>
             ) : (
               <EarningsBarChart data={chart} />
@@ -263,26 +319,74 @@ export default async function ProfitPage() {
         </Card>
       </section>
 
+      {peopleRows.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+            Payouts by person
+          </h2>
+          <Card>
+            <CardBody className="p-0">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Person</TH>
+                    <TH className="text-right">
+                      {MONTH_LONG(thisMonthIso)}
+                    </TH>
+                    <TH className="text-right">YTD</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {peopleRows.map((p) => (
+                    <TR key={p.name}>
+                      <TD className="font-medium text-ink-900">
+                        {p.name}
+                        {p.name === OWNER_NAME ? (
+                          <span className="text-ink-400"> (you)</span>
+                        ) : null}
+                      </TD>
+                      <TD className="text-right tabular-nums text-ink-700">
+                        {p.thisMonth > 0 ? fmtCurrency(p.thisMonth) : "—"}
+                      </TD>
+                      <TD className="text-right tabular-nums font-semibold text-ink-900">
+                        {p.ytd > 0 ? fmtCurrency(p.ytd) : "—"}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardBody>
+          </Card>
+        </section>
+      ) : null}
+
       <section className="space-y-4">
         <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
-          Revenue splits per podcast
+          Podcast monetization
         </h2>
         <Card>
           <CardBody className="p-0">
-            {!splitsEnabled ? (
+            {!configEnabled ? (
               <div className="p-7 text-sm text-ink-500">
-                Per-podcast splits aren&apos;t enabled yet. Apply the{" "}
-                <code className="text-ink-700">podcast_splits</code> migration
-                to your database, then refresh. Figures above use the default{" "}
-                {Math.round(GROSS_SHARE_PCT * 100)}% /{" "}
-                {Math.round(PARTNER_FEE_PCT * 100)}% split until then.
+                Split modes aren&apos;t enabled yet. Apply the{" "}
+                <code className="text-ink-700">split_modes</code> migration to
+                your database, then refresh.
               </div>
-            ) : splitRows.length === 0 ? (
+            ) : configRows.length === 0 ? (
               <div className="p-7 text-sm text-ink-500">
                 No active podcasts yet. Run a sync from the Admin page.
               </div>
             ) : (
-              <PodcastSplitsTable rows={splitRows} />
+              <>
+                {unassignedCount > 0 ? (
+                  <div className="px-5 py-3 text-[12.5px] text-amber-700 border-b border-ink-100">
+                    {unassignedCount} monetizable{" "}
+                    {unassignedCount === 1 ? "podcast has" : "podcasts have"} no
+                    split mode and aren&apos;t counted in the figures above.
+                  </div>
+                ) : null}
+                <PodcastConfigTable rows={configRows} modes={modeOptions} />
+              </>
             )}
           </CardBody>
         </Card>
