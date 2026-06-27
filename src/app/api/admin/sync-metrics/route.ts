@@ -51,7 +51,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await syncMetrics();
+    // Optional ?account= so callers can sync one account at a time and
+    // stay under the serverless function time limit.
+    const accountFilter =
+      new URL(req.url).searchParams.get("account") || undefined;
+    const result = await syncMetrics(new Date(), accountFilter);
     await writeAudit({
       session: session
         ? {

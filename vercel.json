@@ -1,9 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    { "path": "/api/admin/sync", "schedule": "0 7 * * *" },
-    { "path": "/api/admin/sync-metrics", "schedule": "20 7 * * *" }
-  ],
   "functions": {
     "src/app/api/admin/sync-metrics/route.ts": { "maxDuration": 60 },
     "src/app/api/admin/megaphone-refresh/route.ts": { "maxDuration": 60 }

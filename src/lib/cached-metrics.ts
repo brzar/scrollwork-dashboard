@@ -43,7 +43,10 @@ export type SyncResult = {
  * Pull recent metrics for every podcast and upsert into cached_metric.
  * Service-role write — RLS doesn't apply.
  */
-export async function syncMetrics(now: Date = new Date()): Promise<SyncResult> {
+export async function syncMetrics(
+  now: Date = new Date(),
+  accountFilter?: string,
+): Promise<SyncResult> {
   const supabase = createAdminClient();
 
   // Select the account too so each podcast's metrics use its own session.
@@ -71,6 +74,14 @@ export async function syncMetrics(now: Date = new Date()): Promise<SyncResult> {
     }));
   } else {
     podcasts = withAccount.data ?? [];
+  }
+
+  // Optionally limit to a single account so a serverless run stays within
+  // its time budget (callers sync each account separately).
+  if (accountFilter) {
+    podcasts = podcasts.filter(
+      (p) => (p.megaphone_account || "primary") === accountFilter,
+    );
   }
 
   const result: SyncResult = {
