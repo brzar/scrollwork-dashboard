@@ -1,6 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 
-/** Scrollwork logo — public/Blue.png, shown exactly as uploaded. */
+/** Scrollwork logo — public/logo.png (transparent), shown as-is. */
 export function Logo({
   size = 28,
   className = "",
@@ -10,7 +10,7 @@ export function Logo({
 }) {
   return (
     <img
-      src="/Blue.png"
+      src="/logo.png"
       alt="Scrollwork"
       width={size}
       height={size}
