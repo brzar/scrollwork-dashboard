@@ -51,11 +51,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Optional ?account= so callers can sync one account at a time and
-    // stay under the serverless function time limit.
-    const accountFilter =
-      new URL(req.url).searchParams.get("account") || undefined;
-    const result = await syncMetrics(new Date(), accountFilter);
+    // Optional ?account= and ?slice=i&slices=n so callers can split the
+    // work across several short requests and stay under the function limit.
+    const sp = new URL(req.url).searchParams;
+    const accountFilter = sp.get("account") || undefined;
+    const slices = Number(sp.get("slices")) || undefined;
+    const slice = Number(sp.get("slice")) || 0;
+    const result = await syncMetrics(new Date(), accountFilter, slice, slices);
     await writeAudit({
       session: session
         ? {

@@ -46,6 +46,8 @@ export type SyncResult = {
 export async function syncMetrics(
   now: Date = new Date(),
   accountFilter?: string,
+  slice?: number,
+  slices?: number,
 ): Promise<SyncResult> {
   const supabase = createAdminClient();
 
@@ -82,6 +84,14 @@ export async function syncMetrics(
     podcasts = podcasts.filter(
       (p) => (p.megaphone_account || "primary") === accountFilter,
     );
+  }
+
+  // Optionally process only every Nth podcast (round-robin slice). Lets a
+  // caller split a large account across several short requests so no single
+  // serverless invocation exceeds the function time limit.
+  if (slices && slices > 1) {
+    const s = ((slice ?? 0) % slices + slices) % slices;
+    podcasts = podcasts.filter((_, i) => i % slices === s);
   }
 
   const result: SyncResult = {

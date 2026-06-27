@@ -34,14 +34,17 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP $code"; cat /tmp/out; echo
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
-      - name: Sync metrics (per account, to stay under the function limit)
+      - name: Sync metrics (sliced per account to stay under the function limit)
         run: |
           fail=0
+          slices=4
           for acct in primary secondary; do
-            code=$(curl -sS -L --max-time 150 -o /tmp/out -w "%{http_code}" \
-              -X GET "$APP_URL/api/admin/sync-metrics?account=$acct" \
-              -H "Authorization: Bearer $CRON_SECRET")
-            echo "[$acct] HTTP $code"; cat /tmp/out; echo
-            { [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; } || fail=1
+            for i in $(seq 0 $((slices - 1))); do
+              code=$(curl -sS -L --max-time 150 -o /tmp/out -w "%{http_code}" \
+                -X GET "$APP_URL/api/admin/sync-metrics?account=$acct&slice=$i&slices=$slices" \
+                -H "Authorization: Bearer $CRON_SECRET")
+              echo "[$acct $((i+1))/$slices] HTTP $code"; cat /tmp/out; echo
+              { [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; } || fail=1
+            done
           done
           exit $fail
