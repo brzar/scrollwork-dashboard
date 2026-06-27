@@ -10,7 +10,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/permissions";
 import { readCachedEarnings } from "@/lib/cached-metrics";
 import {
-  FOUNDER_COUNT,
   FOUNDER_SHARE_PCT,
   GROSS_SHARE_PCT,
   PARTNER_FEE_PCT,
@@ -190,14 +189,6 @@ export default async function ProfitPage() {
         <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight">
           Profit
         </h1>
-        <p className="text-[14px] text-ink-500 mt-1.5 max-w-2xl">
-          What each founder keeps. Each podcast has its own gross share and
-          partner fee (set below); the company net then splits{" "}
-          <span className="font-medium text-ink-900">
-            {FOUNDER_COUNT} ways evenly
-          </span>{" "}
-          between founders.
-        </p>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -253,16 +244,9 @@ export default async function ProfitPage() {
       </section>
 
       <section className="space-y-4">
-        <div>
-          <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
-            Revenue splits per podcast
-          </h2>
-          <p className="text-[13px] text-ink-500 mt-1 max-w-2xl">
-            Gross share is the cut we take of each show&apos;s creator
-            revenue; partner fee is the slice of that cut paid to partners.
-            Changes apply to the figures above.
-          </p>
-        </div>
+        <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+          Revenue splits per podcast
+        </h2>
         <Card>
           <CardBody className="p-0">
             {!splitsEnabled ? (
