@@ -45,6 +45,17 @@ export class MegaphoneWebSessionExpired extends Error {
   }
 }
 
+export class MegaphoneWebTimeout extends Error {
+  constructor(ms: number) {
+    super(`Megaphone private API timed out after ${ms}ms`);
+    this.name = "MegaphoneWebTimeout";
+  }
+}
+
+/** Per-request timeout for the private API. Generous but finite so a stalled
+ * Megaphone never hangs a sync indefinitely. */
+const CALL_TIMEOUT_MS = 20_000;
+
 async function loadSession(): Promise<MegaphoneSession> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -66,19 +77,48 @@ async function callPrivate<T>(
   session: MegaphoneSession,
 ): Promise<T> {
   const url = `${BASE}${path}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Accept": "application/json",
-      "Content-Type": "application/json",
-      "Origin": "https://cms.megaphone.fm",
-      "Referer": `https://cms.megaphone.fm/organizations/${session.organizationId}/reports/dashboard`,
-      "X-CSRF-Token": session.csrfToken,
-      "Cookie": session.cookieHeader,
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://cms.megaphone.fm",
+        "Referer": `https://cms.megaphone.fm/organizations/${session.organizationId}/reports/dashboard`,
+        "X-CSRF-Token": session.csrfToken,
+        "Cookie": session.cookieHeader,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      // Don't follow the 302 → /users/sign_in that an expired session
+      // returns. Following it lands on an HTML login page (200) that then
+      // breaks JSON parsing or stalls. Catch the redirect and treat it as
+      // an expired session instead.
+      redirect: "manual",
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new MegaphoneWebTimeout(CALL_TIMEOUT_MS);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  // A redirect means the session cookie is no longer valid — Megaphone
+  // bounces unauthenticated requests to the sign-in page. `redirect:
+  // "manual"` surfaces this as either a 3xx status or an opaque redirect
+  // (status 0 / type "opaqueredirect").
+  if (
+    res.type === "opaqueredirect" ||
+    (res.status >= 300 && res.status < 400)
+  ) {
+    throw new MegaphoneWebSessionExpired(res.status || 302);
+  }
 
   if (res.status === 401 || res.status === 403 || res.status === 404) {
     // 404 here historically means "your session isn't authoritative for

@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/audit";
 import {
   MegaphoneWebSessionMissing,
   MegaphoneWebSessionExpired,
+  MegaphoneWebTimeout,
 } from "@/lib/megaphone-web";
 
 export const runtime = "nodejs";
@@ -77,6 +78,9 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof MegaphoneWebSessionExpired) {
       return safeError(424, "Megaphone session expired — refresh it");
+    }
+    if (err instanceof MegaphoneWebTimeout) {
+      return safeError(504, "Megaphone timed out — try again");
     }
     return safeError(502, "Metrics sync failed", err);
   }
