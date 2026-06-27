@@ -28,6 +28,7 @@ import {
 import { isoDate } from "@/lib/date-ranges";
 import { ProfitTable, type ProfitTableRow } from "./ProfitTable";
 import { PodcastSplitsTable, type PodcastSplitRow } from "./PodcastSplitsTable";
+import { FounderShareControl } from "./FounderShareControl";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,21 @@ export default async function ProfitPage() {
       { gross: p.gross_share_pct, partner: p.partner_fee_pct },
     ]),
   );
+
+  // Founder share (% of company net per founder). Stored on app_settings;
+  // falls back to the global default if the migration isn't applied yet.
+  let founderShare = FOUNDER_SHARE_PCT;
+  let founderShareEnabled = true;
+  const settings = await admin
+    .from("app_settings")
+    .select("founder_share_pct")
+    .eq("id", true)
+    .maybeSingle();
+  if (settings.error) {
+    founderShareEnabled = false;
+  } else if (settings.data?.founder_share_pct != null) {
+    founderShare = settings.data.founder_share_pct;
+  }
 
   const earnings = await readCachedEarnings(podIds, queryStart, queryEnd);
 
@@ -158,8 +174,8 @@ export default async function ProfitPage() {
   // cards. Confirmed dark, estimated lighter on top.
   const chart: EarningsBarPoint[] = ascending.map((r) => ({
     month: MONTH_SHORT(r.month),
-    confirmed: r.netConfirmed * FOUNDER_SHARE_PCT,
-    estimated: r.netEstimated * FOUNDER_SHARE_PCT,
+    confirmed: r.netConfirmed * founderShare,
+    estimated: r.netEstimated * founderShare,
   }));
 
   const tableRows: ProfitTableRow[] = descending.map((r) => {
@@ -172,7 +188,7 @@ export default async function ProfitPage() {
       gross: r.grossTotal,
       partnerFee: r.partnerFeeTotal,
       net,
-      perFounder: net * FOUNDER_SHARE_PCT,
+      perFounder: net * founderShare,
     };
   });
 
@@ -185,16 +201,20 @@ export default async function ProfitPage() {
 
   return (
     <div className="animate-rise space-y-10">
-      <header className="pt-4">
+      <header className="pt-4 flex items-start justify-between gap-6 flex-wrap">
         <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight">
           Profit
         </h1>
+        <FounderShareControl
+          value={Math.round(founderShare * 1000) / 10}
+          disabled={!founderShareEnabled}
+        />
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label={`${MONTH_LONG(thisMonthIso)} per founder`}
-          value={fmtCurrency(thisMonthNet * FOUNDER_SHARE_PCT)}
+          value={fmtCurrency(thisMonthNet * founderShare)}
           hint={`${fmtCurrency(thisMonthNet)} company net · estimate`}
         />
         <StatCard
@@ -203,12 +223,12 @@ export default async function ProfitPage() {
               ? `${MONTH_LONG(lastFinalized.month)} per founder`
               : "Last confirmed per founder"
           }
-          value={fmtCurrency(lastFinalizedNet * FOUNDER_SHARE_PCT)}
+          value={fmtCurrency(lastFinalizedNet * founderShare)}
           hint={`${fmtCurrency(lastFinalizedNet)} company net · finalized`}
         />
         <StatCard
           label="YTD per founder"
-          value={fmtCurrency(ytdNet * FOUNDER_SHARE_PCT)}
+          value={fmtCurrency(ytdNet * founderShare)}
           hint={`${fmtCurrency(ytdNet)} company net${
             ytdNetEstimated > 0 ? " (incl. estimate)" : ""
           }`}

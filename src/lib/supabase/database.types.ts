@@ -275,18 +275,21 @@ export interface Database {
         Row: {
           id: boolean;
           dark_mode: boolean;
+          founder_share_pct: number;
           updated_by: string | null;
           updated_at: string;
         };
         Insert: {
           id?: boolean;
           dark_mode?: boolean;
+          founder_share_pct?: number;
           updated_by?: string | null;
           updated_at?: string;
         };
         Update: {
           id?: boolean;
           dark_mode?: boolean;
+          founder_share_pct?: number;
           updated_by?: string | null;
           updated_at?: string;
         };
