@@ -19,11 +19,36 @@ export async function getServerSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
 
-  const { data: profile } = await supabase
+  // Try with partner_name; fall back without it if the partner-identity
+  // migration hasn't been applied yet. A missing column otherwise errors
+  // the whole select -> null profile -> everyone bounced to /pending
+  // (a hard lockout). Never let a pending migration break login.
+  let profile: {
+    email: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    role: string;
+    active: boolean;
+    partner_name?: string | null;
+  } | null = null;
+
+  const full = await supabase
     .from("user_profile")
     .select("email, full_name, avatar_url, role, active, partner_name")
     .eq("user_id", data.user.id)
     .maybeSingle();
+  if (full.error) {
+    const basic = await supabase
+      .from("user_profile")
+      .select("email, full_name, avatar_url, role, active")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    profile = basic.data
+      ? { ...basic.data, partner_name: null }
+      : null;
+  } else {
+    profile = full.data;
+  }
 
   if (!profile) return null;
   if (profile.active === false) return null;
