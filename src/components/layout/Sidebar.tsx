@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "@/lib/session";
+import { Logo } from "@/components/Logo";
 import {
   canViewAudit,
   canManageUsers,
@@ -84,9 +85,7 @@ export function Sidebar() {
   return (
     <aside className="hidden md:flex md:flex-col w-[232px] shrink-0 bg-canvas sticky top-0 h-screen self-start">
       <div className="px-5 h-16 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-ink-900 text-ink-50 flex items-center justify-center font-semibold text-[13px] tracking-tight">
-          S
-        </div>
+        <Logo size={28} />
         <div className="font-semibold text-ink-900 tracking-tightish text-[14.5px]">
           Scrollwork
         </div>

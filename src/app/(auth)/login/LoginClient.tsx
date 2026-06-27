@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardBody } from "@/components/ui/Card";
+import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginClient() {
@@ -66,9 +67,7 @@ function LoginPageInner() {
       <Card className="w-full max-w-sm">
         <CardBody className="p-8">
           <div className="flex flex-col items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-brand text-white flex items-center justify-center font-semibold text-lg shadow-sm">
-              S
-            </div>
+            <Logo size={48} />
             <div className="text-center">
               <h1 className="font-semibold text-ink-900">Scrollwork Dashboard</h1>
               <p className="text-xs text-ink-500 mt-0.5">
