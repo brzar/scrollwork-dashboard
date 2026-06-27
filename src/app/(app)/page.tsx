@@ -4,6 +4,7 @@ import { MetricCard, buildMetric } from "@/components/MetricCard";
 import { AreaTrendChart } from "@/components/charts/AreaTrendChart";
 import { getServerSession } from "@/lib/session-server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { readCachedDelivery } from "@/lib/cached-metrics";
 import {
   computeCpmByPodcast,
@@ -12,6 +13,12 @@ import {
 } from "@/lib/cpm-estimate";
 import { fmtCurrency, fmtCompact } from "@/lib/format";
 import { CREATOR_SHARE_PCT } from "@/lib/profit";
+import {
+  computeSplit,
+  effectiveCreatorShare,
+  parseBeneficiaries,
+  type SplitMode,
+} from "@/lib/split";
 import { subDays, format, parseISO } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
 
@@ -49,17 +56,67 @@ export default async function Overview({
   const queryFromIso = isAllTime ? ALL_TIME_FLOOR : isoDate(priorStart!);
 
   const supabase = createClient();
-  const { data: podcasts } = await supabase
+  // Podcast config is RLS-scoped to what this user can see. Resilient to
+  // the split-mode columns not being migrated in yet.
+  type PodCfg = {
+    id: string;
+    monetizable: boolean;
+    split_mode_id: string | null;
+    creator_share_pct: number | null;
+  };
+  let podCfgs: PodCfg[] = [];
+  const withCfg = await supabase
     .from("podcast")
-    .select("id")
+    .select("id, monetizable, split_mode_id, creator_share_pct")
     .eq("active", true);
-  const podIds = (podcasts ?? []).map((p) => p.id);
+  if (withCfg.error) {
+    const basic = await supabase.from("podcast").select("id").eq("active", true);
+    podCfgs = (basic.data ?? []).map((p) => ({
+      id: p.id,
+      monetizable: true,
+      split_mode_id: null,
+      creator_share_pct: null,
+    }));
+  } else {
+    podCfgs = withCfg.data ?? [];
+  }
+  const cfgById = new Map(podCfgs.map((p) => [p.id, p]));
+  const podIds = podCfgs.map((p) => p.id);
+
+  // Split-mode templates live in an admin-RLS table, so read them with the
+  // service-role client (safe — they're not user-specific, and we only
+  // apply them to podcasts the user already sees). Empty if unmigrated.
+  const modeById = new Map<string, SplitMode>();
+  try {
+    const admin = createAdminClient();
+    const modesRes = await admin
+      .from("split_mode")
+      .select(
+        "id, name, portal, portal_fee_pct, default_creator_share_pct, beneficiaries",
+      );
+    for (const m of modesRes.data ?? []) {
+      modeById.set(m.id, {
+        id: m.id,
+        name: m.name,
+        portal: m.portal,
+        portalFeePct: m.portal_fee_pct,
+        defaultCreatorSharePct: m.default_creator_share_pct,
+        beneficiaries: parseBeneficiaries(m.beneficiaries),
+      });
+    }
+  } catch {
+    // No modes available — falls back to the flat creator share below.
+  }
 
   const [{ rows: all }, cpmByPodcast] = await Promise.all([
     readCachedDelivery(podIds, queryFromIso, isoDate(now)),
     computeCpmByPodcast(podIds, now),
   ]);
   const orgCpm = computeOrgCpm(cpmByPodcast);
+
+  // Per-podcast revenue split into the current vs. prior window, so we can
+  // apply each show's split when computing personalized earnings.
+  const revByPodcast = new Map<string, { cur: number; prior: number }>();
 
   type Day = {
     date: string;
@@ -74,6 +131,7 @@ export default async function Overview({
     const dlCount = Number(v.totalDelivery ?? 0);
     const podCpm = cpmByPodcast.get(r.podcastId);
     const eff = podCpm?.cpm != null ? podCpm : orgCpm;
+    const rev = applyCpm(dlCount, eff);
     const day = byDate.get(r.date) ?? {
       date: r.date,
       streams: 0,
@@ -84,8 +142,21 @@ export default async function Overview({
     day.streams += Number(v.totalStreams ?? 0);
     day.downloads += Number(v.totalDownloads ?? 0);
     day.delivery += dlCount;
-    day.revenue += applyCpm(dlCount, eff);
+    day.revenue += rev;
     byDate.set(r.date, day);
+
+    // Per-podcast revenue, classified into the current/prior window.
+    const inCur = isAllTime || r.date >= isoDate(currentStart);
+    const inPrior =
+      !isAllTime &&
+      r.date >= isoDate(priorStart!) &&
+      r.date <= isoDate(priorEnd!);
+    if (inCur || inPrior) {
+      const e = revByPodcast.get(r.podcastId) ?? { cur: 0, prior: 0 };
+      if (inCur) e.cur += rev;
+      if (inPrior) e.prior += rev;
+      revByPodcast.set(r.podcastId, e);
+    }
   }
 
   const sorted = Array.from(byDate.values()).sort((a, b) =>
@@ -146,8 +217,39 @@ export default async function Overview({
         // dashboard. We project it for both windows so deltas work.
         const rpm = (rev: number, streams: number) =>
           streams > 0 ? (rev * 1000) / streams : 0;
-        const curEarnings = cur.revenue * CREATOR_SHARE_PCT;
-        const priorEarnings = prior.revenue * CREATOR_SHARE_PCT;
+
+        // "Your earnings" is relative to who's logged in:
+        //  - a partner/owner (has a partner identity like Jonathan/King)
+        //    sees their own payout across every show, via the split modes.
+        //  - everyone else (creators/viewers) sees the creator share of the
+        //    podcasts they have access to.
+        const viewerName = session.partnerName;
+        const earningsFor = (podRev: number, cfg: PodCfg | undefined): number => {
+          if (podRev <= 0) return 0;
+          if (cfg && cfg.monetizable === false) return 0;
+          const mode = cfg?.split_mode_id
+            ? modeById.get(cfg.split_mode_id)
+            : undefined;
+          if (viewerName) {
+            if (!mode) return 0;
+            return (
+              computeSplit(podRev, mode, cfg?.creator_share_pct).payouts[
+                viewerName
+              ] ?? 0
+            );
+          }
+          const share = mode
+            ? effectiveCreatorShare(mode, cfg?.creator_share_pct)
+            : CREATOR_SHARE_PCT;
+          return podRev * share;
+        };
+        let curEarnings = 0;
+        let priorEarnings = 0;
+        for (const [pid, rev] of revByPodcast) {
+          const cfg = cfgById.get(pid);
+          curEarnings += earningsFor(rev.cur, cfg);
+          priorEarnings += earningsFor(rev.prior, cfg);
+        }
         const curRpm = rpm(cur.revenue, cur.streams);
         const priorRpm = rpm(prior.revenue, prior.streams);
         // For all-time, every prior window is empty by construction —
