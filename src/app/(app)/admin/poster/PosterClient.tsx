@@ -687,12 +687,24 @@ function ChannelsSection({
   flash,
 }: {
   channels: Channel[];
-  onToggle: (c: Channel) => void;
+  onToggle: (c: Channel) => void | Promise<void>;
   onDelete: (c: Channel) => void;
   onAdded: () => void;
   flash: (t: Tone, s: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function handleToggle(c: Channel) {
+    if (busy) return;
+    setBusy(c.slug);
+    try {
+      await onToggle(c);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
@@ -740,7 +752,10 @@ function ChannelsSection({
               </THead>
               <TBody>
                 {channels.map((c) => (
-                  <TR key={c.slug}>
+                  <TR
+                    key={c.slug}
+                    className={c.enabled ? "" : "opacity-55"}
+                  >
                     <TD>
                       <div className="font-medium text-ink-900">{c.name}</div>
                       <a
@@ -768,16 +783,20 @@ function ChannelsSection({
                       #{c.megaphone_account}
                     </TD>
                     <TD className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => onToggle(c)}
-                        className="align-middle"
-                        title={c.enabled ? "Disable" : "Enable"}
-                      >
-                        <Badge tone={c.enabled ? "success" : "neutral"}>
+                      <div className="inline-flex items-center gap-2.5">
+                        <span
+                          className={`text-[12px] font-medium w-[44px] text-right ${
+                            c.enabled ? "text-emerald-700" : "text-ink-500"
+                          }`}
+                        >
                           {c.enabled ? "Active" : "Paused"}
-                        </Badge>
-                      </button>
+                        </span>
+                        <Switch
+                          on={c.enabled}
+                          busy={busy === c.slug}
+                          onToggle={() => handleToggle(c)}
+                        />
+                      </div>
                     </TD>
                     <TD className="text-right">
                       <Button
@@ -982,6 +1001,36 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+function Switch({
+  on,
+  busy,
+  onToggle,
+}: {
+  on: boolean;
+  busy?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={on ? "Disable channel" : "Enable channel"}
+      disabled={busy}
+      onClick={onToggle}
+      className={`relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors duration-150 disabled:opacity-50 disabled:cursor-wait focus:outline-none focus:ring-2 focus:ring-brand/40 ${
+        on ? "bg-emerald-500" : "bg-ink-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow-sm transition-transform duration-150 ${
+          on ? "translate-x-[18px]" : "translate-x-[2px]"
+        }`}
+      />
+    </button>
   );
 }
 
