@@ -33,6 +33,7 @@ const ALLOWED = new Set([
   "episodes",
   "pause",
   "post",
+  "abort",
   "skip",
   "unskip",
   "lookup",

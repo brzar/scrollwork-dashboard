@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -214,6 +214,19 @@ function Poster() {
     tick();
   }
 
+  async function stopRun() {
+    if (!window.confirm("Stop the current run? It winds down gracefully — finished episodes stay posted.")) {
+      return;
+    }
+    const res = await api("/abort", { method: "POST" });
+    if (res.ok) {
+      flash("neutral", "Stopping the run…");
+      tick();
+    } else {
+      flash("danger", res.error ?? "Couldn't stop the run");
+    }
+  }
+
   async function togglePause() {
     const next = !paused;
     setPaused(next);
@@ -267,6 +280,8 @@ function Poster() {
   }
 
   const enabledCount = channels.filter((c) => c.enabled).length;
+  const runRows = useMemo(() => deriveRun(log), [log]);
+  const activeRun = running || runRows.some((r) => !TERMINAL_STAGES.has(r.stage));
 
   return (
     <div className="animate-rise space-y-8">
@@ -290,7 +305,12 @@ function Poster() {
           >
             {paused ? "Resume" : "Pause"}
           </Button>
-          <Button onClick={postNow} disabled={posting || paused}>
+          {running ? (
+            <Button variant="danger" onClick={stopRun}>
+              Stop run
+            </Button>
+          ) : null}
+          <Button onClick={postNow} disabled={posting || paused || running}>
             {posting ? "Starting…" : running ? "Run in progress" : "Post now"}
           </Button>
         </div>
@@ -336,6 +356,10 @@ function Poster() {
             </div>
           ))}
         </div>
+      ) : null}
+
+      {runRows.length > 0 ? (
+        <RunProgress rows={runRows} active={activeRun} />
       ) : null}
 
       {usage ? <UsageCards usage={usage} /> : null}
@@ -1194,4 +1218,300 @@ function formatEvent(ev: LogEvent): { text: string; cls: string } {
     default:
       return { text: `· ${ev.type}`, cls: "text-ink-400" };
   }
+}
+
+// ---- Per-episode run progress (derived from the event stream) ---------------
+
+type RunStage =
+  | "downloading"
+  | "downloaded"
+  | "submitted"
+  | "processing"
+  | "done"
+  | "failed"
+  | "skipped";
+
+const TERMINAL_STAGES = new Set<RunStage>(["done", "failed", "skipped"]);
+
+type RunRow = {
+  videoId: string;
+  title?: string;
+  channel?: string;
+  stage: RunStage;
+  pct: number;
+  speed?: number;
+  eta?: number;
+  mergeStatus?: string;
+  sizeMb?: string;
+  episodeId?: string;
+  status?: string;
+  outcome?: string;
+  order: number;
+};
+
+/** Fold the event log into one row per video, tracking its pipeline stage. */
+function deriveRun(events: LogEvent[]): RunRow[] {
+  const map = new Map<string, RunRow>();
+  const epToVid = new Map<string, string>();
+  let order = 0;
+  const get = (vid: string): RunRow => {
+    let r = map.get(vid);
+    if (!r) {
+      r = { videoId: vid, stage: "downloading", pct: 0, order: order++ };
+      map.set(vid, r);
+    }
+    return r;
+  };
+  const f = (ev: LogEvent, k: string) => (ev as any)[k];
+
+  for (const ev of events) {
+    const vid = String(f(ev, "video_id") ?? "");
+    switch (ev.type) {
+      case "download_start": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "downloading";
+        r.title = String(f(ev, "title") ?? r.title ?? "");
+        r.channel = String(f(ev, "channel") ?? r.channel ?? "");
+        break;
+      }
+      case "download_progress": {
+        if (!vid) break;
+        const r = get(vid);
+        if (TERMINAL_STAGES.has(r.stage)) break;
+        const merge = f(ev, "merge_status");
+        if (merge) {
+          r.mergeStatus = String(merge);
+          const mp = Number(f(ev, "merge_percent"));
+          if (!Number.isNaN(mp) && mp > 0) r.pct = mp;
+        } else {
+          const dl = Number(f(ev, "downloaded") ?? 0);
+          const tot = Number(f(ev, "total") ?? 0);
+          if (tot > 0) r.pct = Math.min(99, (dl / tot) * 100);
+          r.speed = Number(f(ev, "speed") ?? 0);
+          r.eta = Number(f(ev, "eta") ?? 0);
+          r.mergeStatus = undefined;
+        }
+        r.stage = "downloading";
+        break;
+      }
+      case "download_done": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "downloaded";
+        r.pct = 100;
+        r.sizeMb = String(f(ev, "size_mb") ?? "");
+        break;
+      }
+      case "download_error":
+      case "download_aborted": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "failed";
+        r.outcome = ev.type === "download_aborted" ? "aborted" : "download failed";
+        break;
+      }
+      case "dedup_skipped": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "skipped";
+        r.outcome = "already on Megaphone";
+        if (!r.title) r.title = String(f(ev, "title") ?? "");
+        break;
+      }
+      case "megaphone_submitted": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "submitted";
+        r.episodeId = String(f(ev, "episode_id") ?? "");
+        if (r.episodeId) epToVid.set(r.episodeId, vid);
+        if (!r.title) r.title = String(f(ev, "title") ?? "");
+        break;
+      }
+      case "status_update": {
+        const eid = String(f(ev, "episode_id") ?? "");
+        const v = epToVid.get(eid);
+        if (!v) break;
+        const r = map.get(v);
+        if (!r || TERMINAL_STAGES.has(r.stage)) break;
+        r.status = String(f(ev, "status") ?? "");
+        r.stage = "processing";
+        break;
+      }
+      case "megaphone_error": {
+        if (!vid) break;
+        const r = get(vid);
+        r.stage = "failed";
+        r.outcome = "Megaphone error";
+        break;
+      }
+      case "episode_terminal": {
+        if (!vid) break;
+        const r = get(vid);
+        const outcome = String(f(ev, "outcome") ?? "");
+        r.outcome = outcome;
+        if (outcome === "success") r.stage = "done";
+        else if (outcome.includes("skip") || outcome.includes("unavailable"))
+          r.stage = "skipped";
+        else r.stage = "failed";
+        break;
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.order - b.order);
+}
+
+function RunProgress({ rows, active }: { rows: RunRow[]; active: boolean }) {
+  const done = rows.filter((r) => r.stage === "done").length;
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center gap-2">
+        <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+          This run
+        </h2>
+        {active ? <Dot tone="brand" /> : null}
+        <Badge tone={done === rows.length ? "success" : "brand"}>
+          {done}/{rows.length} live
+        </Badge>
+      </div>
+      <Card>
+        <CardBody className="p-0">
+          <ul className="divide-y divide-ink-100">
+            {rows.map((r) => (
+              <RunRowItem key={r.videoId} r={r} />
+            ))}
+          </ul>
+        </CardBody>
+      </Card>
+    </section>
+  );
+}
+
+function RunRowItem({ r }: { r: RunRow }) {
+  return (
+    <li className="flex items-center gap-4 px-5 py-3.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`https://i.ytimg.com/vi/${r.videoId}/mqdefault.jpg`}
+        alt=""
+        className="w-[80px] h-[45px] rounded-md object-cover bg-ink-100 shrink-0"
+        loading="lazy"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13.5px] font-medium text-ink-900 truncate">
+          {r.title || r.videoId}
+        </div>
+        {r.channel ? (
+          <div className="text-[12px] text-ink-500 truncate">{r.channel}</div>
+        ) : null}
+        <div className="mt-2">
+          {r.stage === "downloading" ? (
+            <DownloadBar r={r} />
+          ) : (
+            <StageLine r={r} />
+          )}
+        </div>
+      </div>
+      <StageBadge stage={r.stage} />
+    </li>
+  );
+}
+
+function DownloadBar({ r }: { r: RunRow }) {
+  const pct = Math.round(r.pct);
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[11.5px] text-ink-500 mb-1">
+        <span>{r.mergeStatus ? `Merging — ${r.mergeStatus}` : "Downloading"}</span>
+        <span className="tabular-nums">
+          {r.mergeStatus
+            ? `${pct}%`
+            : `${pct}%  ·  ${formatSpeed(r.speed)}  ·  ETA ${formatEta(r.eta)}`}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-brand transition-all duration-200"
+          style={{ width: `${Math.max(2, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function StageLine({ r }: { r: RunRow }) {
+  switch (r.stage) {
+    case "downloaded":
+      return (
+        <div className="text-[12.5px] text-ink-600">
+          Downloaded{r.sizeMb ? ` ${r.sizeMb} MB` : ""} — submitting to Megaphone…
+        </div>
+      );
+    case "submitted":
+      return (
+        <div className="text-[12.5px] text-ink-700">
+          Submitted to Megaphone
+          {r.episodeId ? ` · ${r.episodeId.slice(0, 8)}…` : ""} — queued for
+          processing
+        </div>
+      );
+    case "processing":
+      return (
+        <div className="text-[12.5px] text-amber-700">
+          Processing on Megaphone{r.status ? ` — ${r.status}` : ""}
+        </div>
+      );
+    case "done":
+      return (
+        <div className="text-[12.5px] text-emerald-700 font-medium">
+          ✓ Live on Megaphone
+        </div>
+      );
+    case "failed":
+      return (
+        <div className="text-[12.5px] text-red-600">
+          Failed{r.outcome ? ` — ${r.outcome}` : ""}
+        </div>
+      );
+    case "skipped":
+      return (
+        <div className="text-[12.5px] text-ink-500">
+          {r.outcome || "Skipped"}
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+function StageBadge({ stage }: { stage: RunStage }) {
+  const map: Record<RunStage, { tone: Tone; label: string }> = {
+    downloading: { tone: "brand", label: "Downloading" },
+    downloaded: { tone: "neutral", label: "Downloaded" },
+    submitted: { tone: "brand", label: "Submitted" },
+    processing: { tone: "warning", label: "Processing" },
+    done: { tone: "success", label: "Live" },
+    failed: { tone: "danger", label: "Failed" },
+    skipped: { tone: "neutral", label: "Skipped" },
+  };
+  const m = map[stage];
+  return (
+    <span className="shrink-0">
+      <Badge tone={m.tone}>{m.label}</Badge>
+    </span>
+  );
+}
+
+function formatSpeed(bytesPerSec?: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return "—";
+  const mb = bytesPerSec / 1_000_000;
+  if (mb >= 1) return `${mb.toFixed(1)} MB/s`;
+  return `${(bytesPerSec / 1000).toFixed(0)} KB/s`;
+}
+
+function formatEta(sec?: number): string {
+  if (!sec || sec <= 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
