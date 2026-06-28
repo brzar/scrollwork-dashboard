@@ -19,6 +19,7 @@ import {
   parseBeneficiaries,
   type SplitMode,
 } from "@/lib/split";
+import { isDemo, DEMO_METRICS, demoSeries } from "@/lib/demo";
 import { subDays, format, parseISO } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
 
@@ -37,6 +38,11 @@ export default async function Overview({
 }) {
   const session = await getServerSession();
   if (!session) redirect("/pending");
+
+  // Test/demo users see fake data only — never real metrics.
+  if (isDemo(session)) {
+    return <DemoOverview />;
+  }
 
   const range: Range = VALID_RANGES.has(searchParams.range as Range)
     ? (searchParams.range as Range)
@@ -327,6 +333,43 @@ export default async function Overview({
             ) : (
               <AreaTrendChart data={chart} dataKey="streams" label="Streams" />
             )}
+          </CardBody>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+/** Fake Overview shown to test/demo users. No real data touched. */
+function DemoOverview() {
+  const m = DEMO_METRICS;
+  const chart = demoSeries(30);
+  return (
+    <div className="animate-rise space-y-10">
+      <header className="pt-4">
+        <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight">
+          Overview
+        </h1>
+        <p className="text-[14px] text-ink-500 mt-1.5">
+          Demo workspace — sample data only.
+        </p>
+      </header>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Streams" value={fmtCompact(m.streams)} indicator="good" comparison="more than prior period" />
+        <MetricCard label="Est. revenue" value={fmtCurrency(m.revenue)} indicator="good" comparison="more than prior period" />
+        <MetricCard label="Your earnings" value={fmtCurrency(m.earnings)} indicator="same" comparison="about the same" />
+        <MetricCard label="RPM" value={fmtCurrency(m.rpm)} indicator="good" comparison="more than prior period" />
+      </div>
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+            Streams
+          </h2>
+          <span className="text-[12.5px] text-ink-500">sample</span>
+        </div>
+        <Card>
+          <CardBody className="p-7">
+            <AreaTrendChart data={chart} dataKey="streams" label="Streams" />
           </CardBody>
         </Card>
       </section>

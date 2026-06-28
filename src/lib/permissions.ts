@@ -31,6 +31,8 @@ export type Session = {
   role: Role;
   /** Beneficiary name this account maps to in split modes (e.g. "King"). */
   partnerName: string | null;
+  /** Test/demo account — sees only fake podcasts + fake metrics. */
+  isDemo: boolean;
 };
 
 // ---- High-level role checks ----------------------------------------------

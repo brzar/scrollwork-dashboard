@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
             avatarUrl: null,
             role: actorRole ?? "admin",
             partnerName: null,
+            isDemo: false,
           }
         : null,
       action: "podcast.sync",

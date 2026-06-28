@@ -26,6 +26,7 @@ import {
   parseISO,
 } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
+import { isDemo, DEMO_PODCASTS, DEMO_METRICS } from "@/lib/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,13 @@ export default async function PodcastDetail({
 }) {
   const session = await getServerSession();
   if (!session) redirect("/pending");
+
+  // Test/demo users see fake shows only.
+  if (isDemo(session)) {
+    const demo = DEMO_PODCASTS.find((p) => p.id === params.id);
+    if (!demo) notFound();
+    return <DemoPodcastDetail title={demo.title} author={demo.author} />;
+  }
 
   const supabase = createClient();
   const { data: podcast } = await supabase
@@ -381,4 +389,39 @@ function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Fake podcast detail shown to test/demo users. */
+function DemoPodcastDetail({
+  title,
+  author,
+}: {
+  title: string;
+  author: string;
+}) {
+  const m = DEMO_METRICS;
+  return (
+    <div className="animate-rise space-y-10">
+      <div className="pt-4">
+        <Link
+          href="/podcasts"
+          className="text-xs font-medium text-ink-500 hover:text-ink-900"
+        >
+          ← Podcasts
+        </Link>
+        <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight mt-2">
+          {title}
+        </h1>
+        <p className="text-[14px] text-ink-500 mt-1.5">
+          {author} · demo data
+        </p>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Streams (30d)" value={fmtCompact(m.streams)} />
+        <StatCard label="Downloads (30d)" value={fmtCompact(m.delivery)} />
+        <StatCard label="Est. revenue" value={fmtCurrency(m.revenue)} />
+        <StatCard label="RPM" value={fmtCurrency(m.rpm)} />
+      </div>
+    </div>
+  );
 }

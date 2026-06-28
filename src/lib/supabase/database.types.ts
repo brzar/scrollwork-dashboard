@@ -34,6 +34,7 @@ export interface Database {
           role: Role;
           active: boolean;
           partner_name: string | null;
+          is_demo: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -45,6 +46,7 @@ export interface Database {
           role: Role;
           active?: boolean;
           partner_name?: string | null;
+          is_demo?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -56,6 +58,7 @@ export interface Database {
           role?: Role;
           active?: boolean;
           partner_name?: string | null;
+          is_demo?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -254,6 +257,7 @@ export interface Database {
           revoked_at: string | null;
           podcast_access: Json;
           partner_name: string | null;
+          is_demo: boolean;
           created_at: string;
         };
         Insert: {
@@ -265,6 +269,7 @@ export interface Database {
           revoked_at?: string | null;
           podcast_access?: Json;
           partner_name?: string | null;
+          is_demo?: boolean;
           created_at?: string;
         };
         Update: {
@@ -276,6 +281,7 @@ export interface Database {
           revoked_at?: string | null;
           podcast_access?: Json;
           partner_name?: string | null;
+          is_demo?: boolean;
           created_at?: string;
         };
         Relationships: [];

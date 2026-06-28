@@ -5,20 +5,43 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { getServerSession } from "@/lib/session-server";
 import { createClient } from "@/lib/supabase/server";
+import { isDemo, DEMO_PODCASTS } from "@/lib/demo";
 
 export const dynamic = "force-dynamic";
+
+type Row = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  author: string | null;
+  image_url: string | null;
+  active: boolean;
+};
 
 export default async function PodcastsPage() {
   const session = await getServerSession();
   if (!session) redirect("/pending");
 
-  const supabase = createClient();
-  const { data: podcasts } = await supabase
-    .from("podcast")
-    .select("id, title, subtitle, author, image_url, active, created_at")
-    .order("title");
-
-  const rows = podcasts ?? [];
+  let rows: Row[];
+  if (isDemo(session)) {
+    // Test/demo users see only fake shows.
+    rows = DEMO_PODCASTS.map((p) => ({
+      id: p.id,
+      title: p.title,
+      subtitle: null,
+      author: p.author,
+      image_url: null,
+      active: true,
+    }));
+  } else {
+    const supabase = createClient();
+    const { data: podcasts } = await supabase
+      .from("podcast")
+      .select("id, title, subtitle, author, image_url, active")
+      .eq("active", true)
+      .order("title");
+    rows = (podcasts ?? []) as Row[];
+  }
 
   return (
     <div className="animate-rise space-y-10">

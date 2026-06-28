@@ -25,6 +25,7 @@ type User = {
   active: boolean;
   created_at: string;
   partner_name: string | null;
+  is_demo: boolean;
 };
 
 type Podcast = { id: string; title: string };
@@ -58,6 +59,7 @@ export function UsersAdminClient({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("viewer");
   const [invitePartner, setInvitePartner] = useState("");
+  const [inviteDemo, setInviteDemo] = useState(false);
   // Per-podcast access level being granted in the invite form.
   // Keyed by podcast_id; absence = no access (default).
   const [invitePodcasts, setInvitePodcasts] = useState<
@@ -120,6 +122,7 @@ export function UsersAdminClient({
           role: inviteRole,
           podcasts,
           partner_name: invitePartner || null,
+          is_demo: inviteDemo,
         }),
       },
       "invite",
@@ -127,6 +130,7 @@ export function UsersAdminClient({
     setInviteEmail("");
     setInvitePodcasts(new Map());
     setInvitePartner("");
+    setInviteDemo(false);
   }
 
   async function onChangePartner(u: User, partner_name: string) {
@@ -134,6 +138,14 @@ export function UsersAdminClient({
       `/api/admin/users/${u.user_id}`,
       { method: "PATCH", body: JSON.stringify({ partner_name: partner_name || null }) },
       `partner-${u.user_id}`,
+    );
+  }
+
+  async function onToggleDemo(u: User) {
+    await call(
+      `/api/admin/users/${u.user_id}`,
+      { method: "PATCH", body: JSON.stringify({ is_demo: !u.is_demo }) },
+      `demo-${u.user_id}`,
     );
   }
 
@@ -256,6 +268,19 @@ export function UsersAdminClient({
                 </span>
               </div>
             ) : null}
+
+            <label className="flex items-center gap-2 text-[13px] text-ink-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={inviteDemo}
+                onChange={(e) => setInviteDemo(e.target.checked)}
+                className="h-4 w-4 accent-brand"
+              />
+              Test user
+              <span className="text-[11.5px] text-ink-400">
+                sees only fake podcasts + sample numbers, never real data
+              </span>
+            </label>
 
             {isPerPodcastRole ? (
               <div className="border border-ink-200 rounded-lg overflow-hidden">
@@ -403,11 +428,14 @@ export function UsersAdminClient({
                       </TD>
                     ) : null}
                     <TD>
-                      {u.active ? (
-                        <Badge tone="success">Active</Badge>
-                      ) : (
-                        <Badge tone="danger">Disabled</Badge>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {u.active ? (
+                          <Badge tone="success">Active</Badge>
+                        ) : (
+                          <Badge tone="danger">Disabled</Badge>
+                        )}
+                        {u.is_demo ? <Badge tone="brand">Test</Badge> : null}
+                      </div>
                     </TD>
                     <TD className="text-xs text-ink-700">
                       {u.role === "super_admin" || u.role === "admin"
@@ -429,6 +457,14 @@ export function UsersAdminClient({
                         disabled={busy === `active-${u.user_id}`}
                       >
                         {u.active ? "Disable" : "Enable"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onToggleDemo(u)}
+                        disabled={busy === `demo-${u.user_id}`}
+                      >
+                        {u.is_demo ? "Unset test" : "Make test"}
                       </Button>
                     </TD>
                   </TR>

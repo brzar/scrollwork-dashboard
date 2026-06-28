@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
     if (!existingProfile) {
       const { data: invite } = await admin
         .from("invitation")
-        .select("id, role, partner_name, podcast_access, invited_by")
+        .select("id, role, partner_name, podcast_access, invited_by, is_demo")
         .ilike("email", userEmail)
         .is("accepted_at", null)
         .is("revoked_at", null)
@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
           role: invite.role,
           active: true,
           partner_name: invite.partner_name ?? null,
+          is_demo: invite.is_demo ?? false,
         });
         if (!insErr) {
           await admin
@@ -224,6 +225,7 @@ export async function GET(req: NextRequest) {
           avatarUrl: null,
           role: "viewer",
           partnerName: null,
+            isDemo: false,
         }
       : null,
     action: "auth.login",

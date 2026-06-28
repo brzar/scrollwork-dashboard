@@ -21,6 +21,7 @@ const PatchSchema = z.object({
   role: z.enum(ROLES as [Role, ...Role[]]).optional(),
   active: z.boolean().optional(),
   partner_name: z.string().trim().max(80).nullable().optional(),
+  is_demo: z.boolean().optional(),
 });
 
 /**
@@ -46,7 +47,7 @@ export async function PATCH(
   const raw = await req.json().catch(() => ({}));
   const parsed = PatchSchema.safeParse(raw);
   if (!parsed.success) return safeError(400, "Invalid update");
-  const { role, active, partner_name } = parsed.data;
+  const { role, active, partner_name, is_demo } = parsed.data;
 
   if (role && !canChangeRoles(auth.session)) {
     return safeError(403, "Only super admins can change roles");
@@ -89,10 +90,12 @@ export async function PATCH(
     role?: Role;
     active?: boolean;
     partner_name?: string | null;
+    is_demo?: boolean;
   } = {};
   if (role) patch.role = role;
   if (typeof active === "boolean") patch.active = active;
   if (partner_name !== undefined) patch.partner_name = partner_name || null;
+  if (typeof is_demo === "boolean") patch.is_demo = is_demo;
   if (Object.keys(patch).length === 0) return safeError(400, "No changes");
 
   const { error } = await supabase

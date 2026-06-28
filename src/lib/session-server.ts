@@ -30,11 +30,12 @@ export async function getServerSession(): Promise<Session | null> {
     role: string;
     active: boolean;
     partner_name?: string | null;
+    is_demo?: boolean | null;
   } | null = null;
 
   const full = await supabase
     .from("user_profile")
-    .select("email, full_name, avatar_url, role, active, partner_name")
+    .select("email, full_name, avatar_url, role, active, partner_name, is_demo")
     .eq("user_id", data.user.id)
     .maybeSingle();
   if (full.error) {
@@ -44,7 +45,7 @@ export async function getServerSession(): Promise<Session | null> {
       .eq("user_id", data.user.id)
       .maybeSingle();
     profile = basic.data
-      ? { ...basic.data, partner_name: null }
+      ? { ...basic.data, partner_name: null, is_demo: false }
       : null;
   } else {
     profile = full.data;
@@ -63,5 +64,6 @@ export async function getServerSession(): Promise<Session | null> {
     avatarUrl: profile.avatar_url ?? null,
     role,
     partnerName: profile.partner_name ?? null,
+    isDemo: profile.is_demo === true,
   };
 }

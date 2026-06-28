@@ -17,7 +17,7 @@ export default async function AdminUsersPage() {
     supabase
       .from("user_profile")
       .select(
-        "user_id, email, full_name, role, active, created_at, partner_name",
+        "user_id, email, full_name, role, active, created_at, partner_name, is_demo",
       )
       .order("created_at", { ascending: false }),
     supabase

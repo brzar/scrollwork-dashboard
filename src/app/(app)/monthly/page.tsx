@@ -19,6 +19,7 @@ import {
   subYears,
 } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
+import { isDemo, DEMO_METRICS, demoMonthlyEarnings } from "@/lib/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,10 @@ const MONTH_LONG = (iso: string) => format(parseISO(iso), "MMMM yyyy");
 export default async function RevenuePage() {
   const session = await getServerSession();
   if (!session) redirect("/pending");
+
+  if (isDemo(session)) {
+    return <DemoRevenue />;
+  }
 
   const now = new Date();
   // Cover everything since 18 months back so we always show enough context.
@@ -151,6 +156,38 @@ export default async function RevenuePage() {
         <Card>
           <CardBody className="p-0">
             <EarningsTable rows={tableRows} />
+          </CardBody>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+/** Fake Revenue page for test/demo users. */
+function DemoRevenue() {
+  const chart: EarningsBarPoint[] = demoMonthlyEarnings(12);
+  return (
+    <div className="animate-rise space-y-10">
+      <header className="pt-4">
+        <h1 className="text-[28px] font-semibold text-ink-900 tracking-tightish leading-tight">
+          Revenue
+        </h1>
+        <p className="text-[14px] text-ink-500 mt-1.5">
+          Demo workspace — sample data only.
+        </p>
+      </header>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="This month" value={fmtCurrency(DEMO_METRICS.revenue)} hint="estimate" />
+        <StatCard label="Last confirmed" value={fmtCurrency(DEMO_METRICS.revenuePrev)} hint="finalized" />
+        <StatCard label="YTD" value={fmtCurrency(69 * 6)} hint="sample" />
+      </div>
+      <section className="space-y-4">
+        <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+          Monthly revenue
+        </h2>
+        <Card>
+          <CardBody className="p-7">
+            <EarningsBarChart data={chart} />
           </CardBody>
         </Card>
       </section>
