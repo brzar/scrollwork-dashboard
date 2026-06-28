@@ -1,12 +1,14 @@
 name: Megaphone session refresh
 
-# Keeps the Megaphone web sessions alive (Playwright). The session lasts
-# ~24h, so every 6 hours is plenty. Writes the refreshed cookies to
-# Supabase, which the live dashboard reads from.
+# Keeps the Megaphone web sessions alive (Playwright). Megaphone's cookies
+# are short-lived, so we re-roll hourly — each run re-derives fresh cookies
+# from the saved login and writes them (plus a refreshed storage_state)
+# back to Supabase, which the live dashboard reads from. If a >~1h gap ever
+# lets it fully lapse, re-seed once with `npm run megaphone:auth`.
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # every 6 hours (UTC)
+    - cron: "0 * * * *" # hourly (UTC)
   workflow_dispatch: {} # allow manual run from the Actions tab
 
 concurrency:
