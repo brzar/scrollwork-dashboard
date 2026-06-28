@@ -55,6 +55,13 @@ type Usage = {
     remaining_mb: number;
     percent: number;
   };
+  egress?: {
+    enabled: boolean;
+    used_gb: number;
+    budget_gb: number;
+    remaining_gb: number | null;
+    percent: number;
+  };
 };
 
 type Episode = {
@@ -428,8 +435,18 @@ function Dot({ tone }: { tone: Tone }) {
 // ---- Usage -----------------------------------------------------------------
 
 function UsageCards({ usage }: { usage: Usage }) {
+  const egress = usage.egress;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {egress?.enabled ? (
+        <Meter
+          label="Hosting data this month (spend cap)"
+          used={egress.used_gb}
+          limit={egress.budget_gb}
+          percent={egress.percent}
+          format={(n) => `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} GB`}
+        />
+      ) : null}
       <Meter
         label={`Downloader requests · ${usage.month}`}
         used={usage.requests.used}
@@ -1167,6 +1184,11 @@ function formatEvent(ev: LogEvent): { text: string; cls: string } {
       return { text: `✅ run complete — idle`, cls: ok };
     case "run_empty":
       return { text: `• nothing to post`, cls: ink };
+    case "egress_budget_reached":
+      return {
+        text: `⛔ monthly data budget (${s("budget_gb")} GB) reached — posting paused until next month`,
+        cls: err,
+      };
     case "hello":
       return { text: `— connected —`, cls: "text-ink-400" };
     default:
