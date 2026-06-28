@@ -1,15 +1,11 @@
-name: Megaphone data sync
+name: Megaphone refresh + sync
 
-# Keeps the live dashboard's numbers current. Runs entirely on GitHub's
-# servers — no local machine needed.
+# One job every 30 minutes: re-roll the Megaphone session (Playwright),
+# then sync podcasts + metrics. Refreshing on every run keeps the short-
+# lived (~75 min) session alive well within its window, and syncing right
+# after means the data write always uses a just-minted session.
 #
-# - Podcasts: a quick authenticated request to the deployed app (fast,
-#   fits the serverless limit).
-# - Metrics: run directly here in Node (no serverless time limit), so even
-#   slow Megaphone accounts sync fully. Reads the stored session from
-#   Supabase — no Megaphone API token needed.
-#
-# Cadence: every 30 minutes fits GitHub's free Actions tier.
+# Runs entirely on GitHub's servers — no machine needed.
 
 on:
   schedule:
@@ -21,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sync:
+  run:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -31,7 +27,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Sync podcasts (via deployed app)
+
+      # Cache the Chromium download so most runs skip the ~100MB install.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # 1) Re-roll the session. continue-on-error so a transient refresh
+      #    hiccup doesn't block a sync that might still have a valid session.
+      - name: Refresh Megaphone sessions
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run megaphone:refresh
+
+      # 2) Sync the podcast list via the deployed app (fast).
+      - name: Sync podcasts
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -41,7 +58,9 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
           echo "podcasts: HTTP $code"; cat /tmp/out; echo
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
-      - name: Sync metrics (in-runner, no time limit)
+
+      # 3) Sync metrics in-runner (no serverless time limit).
+      - name: Sync metrics
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

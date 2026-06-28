@@ -6,9 +6,9 @@ name: Megaphone session refresh
 # back to Supabase, which the live dashboard reads from. If a >~1h gap ever
 # lets it fully lapse, re-seed once with `npm run megaphone:auth`.
 
+# Scheduling moved into megaphone-sync.yml (refresh + sync run together
+# every 30 min). This stays as a manual-only "refresh now" button.
 on:
-  schedule:
-    - cron: "0 * * * *" # hourly (UTC)
   workflow_dispatch: {} # allow manual run from the Actions tab
 
 concurrency:
