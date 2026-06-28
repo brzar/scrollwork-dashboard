@@ -172,7 +172,7 @@ function buildCsp({ isProd, nonce }: { isProd: boolean; nonce?: string }): strin
 
   return [
     "default-src 'self'",
-    "img-src 'self' data: https://lh3.googleusercontent.com https://*.megaphone.fm https://*.imgix.net https://*.googleusercontent.com",
+    "img-src 'self' data: https://lh3.googleusercontent.com https://*.megaphone.fm https://*.imgix.net https://*.googleusercontent.com https://i.ytimg.com https://*.ytimg.com",
     // Tailwind / Next inline styles need 'unsafe-inline' for style-src.
     "style-src 'self' 'unsafe-inline'",
     scriptSrc,

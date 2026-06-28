@@ -41,6 +41,7 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/admin", label: "Overview", icon: <IconShield />, show: (s) => isAdmin(s) },
       { href: "/admin/profit", label: "Profit", icon: <IconDollar />, show: (s) => isAdmin(s) },
+      { href: "/admin/poster", label: "Spotify Poster", icon: <IconUpload />, show: (s) => isAdmin(s) },
       { href: "/admin/users", label: "Users", icon: <IconUsers />, show: (s) => canManageUsers(s) },
       { href: "/admin/audit", label: "Audit log", icon: <IconLog />, show: (s) => canViewAudit(s) },
     ],
@@ -295,6 +296,14 @@ function IconLog() {
     <svg {...svgProps()}>
       <path d="M4 4h16v16H4z" />
       <path d="M8 9h8M8 13h8M8 17h5" />
+    </svg>
+  );
+}
+function IconUpload() {
+  return (
+    <svg {...svgProps()}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M12 16V4M7 9l5-5 5 5" />
     </svg>
   );
 }
