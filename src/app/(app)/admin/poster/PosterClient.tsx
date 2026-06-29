@@ -160,18 +160,15 @@ function Poster() {
     if (wn.ok && wn.data) setWarnings(wn.data.warnings);
   }, []);
 
-  // Fast loop — queue + live log (log carries paused / is_running too).
-  const tick = useCallback(async () => {
-    const [q, l] = await Promise.all([
-      api<{ items: QueueItem[]; is_running: boolean }>("/queue"),
-      api<{
-        events: LogEvent[];
-        latest_seq: number;
-        is_running: boolean;
-        paused: boolean;
-      }>(`/log?since=${logCursor.current}`),
-    ]);
-    if (q.ok && q.data) setQueue(q.data.items);
+  // Fast loop — the live log (in-memory, cheap). Drives the run view, paused
+  // and running state, so it polls quickly for a near-real-time feel.
+  const pollLog = useCallback(async () => {
+    const l = await api<{
+      events: LogEvent[];
+      latest_seq: number;
+      is_running: boolean;
+      paused: boolean;
+    }>(`/log?since=${logCursor.current}`);
     if (l.ok && l.data) {
       setPaused(l.data.paused);
       setRunning(l.data.is_running);
@@ -182,16 +179,30 @@ function Poster() {
     }
   }, []);
 
+  // Slower loop — the queue (recomputing it lists YouTube, so don't hammer it).
+  const pollQueue = useCallback(async () => {
+    const q = await api<{ items: QueueItem[]; is_running: boolean }>("/queue");
+    if (q.ok && q.data) setQueue(q.data.items);
+  }, []);
+
+  const tick = useCallback(() => {
+    pollLog();
+    pollQueue();
+  }, [pollLog, pollQueue]);
+
   useEffect(() => {
     loadAll();
-    tick();
-    const fast = window.setInterval(tick, 3000);
+    pollLog();
+    pollQueue();
+    const logTimer = window.setInterval(pollLog, 1500);
+    const queueTimer = window.setInterval(pollQueue, 8000);
     const slow = window.setInterval(loadAll, 25000);
     return () => {
-      window.clearInterval(fast);
+      window.clearInterval(logTimer);
+      window.clearInterval(queueTimer);
       window.clearInterval(slow);
     };
-  }, [loadAll, tick]);
+  }, [loadAll, pollLog, pollQueue]);
 
   async function postNow() {
     if (posting) return;
@@ -375,6 +386,8 @@ function Poster() {
         <RecentEpisodes episodes={episodes} channels={channels} />
       </div>
 
+      <ScheduleSection flash={flash} />
+
       <ChannelsSection
         channels={channels}
         onToggle={toggleChannel}
@@ -386,6 +399,156 @@ function Poster() {
         flash={flash}
       />
     </div>
+  );
+}
+
+// ---- Schedule --------------------------------------------------------------
+
+function ScheduleSection({ flash }: { flash: (t: Tone, s: string) => void }) {
+  const [enabled, setEnabled] = useState(false);
+  const [times, setTimes] = useState<string[]>([]);
+  const [tz, setTz] = useState("UTC");
+  const [newTime, setNewTime] = useState("09:00");
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const r = await api<{ enabled: boolean; times: string[]; tz: string }>(
+        "/schedule",
+      );
+      if (r.ok && r.data) {
+        setEnabled(!!r.data.enabled);
+        setTimes(r.data.times ?? []);
+        setTz(r.data.tz || "UTC");
+      }
+      setLoaded(true);
+    })();
+  }, []);
+
+  async function save(next: {
+    enabled?: boolean;
+    times?: string[];
+    tz?: string;
+  }) {
+    const body = {
+      enabled: next.enabled ?? enabled,
+      times: next.times ?? times,
+      tz: next.tz ?? tz,
+    };
+    setBusy(true);
+    const r = await api("/schedule", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    if (r.ok) flash("success", "Schedule saved.");
+    else flash("danger", r.error ?? "Couldn't save the schedule");
+  }
+
+  function toggle() {
+    const v = !enabled;
+    setEnabled(v);
+    save({ enabled: v });
+  }
+  function addTime() {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(newTime)) {
+      flash("danger", "Use 24-hour HH:MM (e.g. 09:00 or 18:30).");
+      return;
+    }
+    if (times.includes(newTime)) return;
+    const next = [...times, newTime].sort();
+    setTimes(next);
+    save({ times: next });
+  }
+  function removeTime(t: string) {
+    const next = times.filter((x) => x !== t);
+    setTimes(next);
+    save({ times: next });
+  }
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-[15px] font-semibold text-ink-900 tracking-tightish">
+        Schedule
+      </h2>
+      <Card>
+        <CardBody className="p-6 space-y-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[13.5px] font-medium text-ink-900">
+                Auto-post on a schedule
+              </div>
+              <div className="text-[12.5px] text-ink-500 mt-0.5 max-w-md">
+                Runs a posting cycle automatically at each time below — every
+                channel posts up to its daily cap. No need to click Post now.
+              </div>
+            </div>
+            <Switch on={enabled} busy={busy && !loaded} onToggle={toggle} />
+          </div>
+
+          <div className={enabled ? "" : "opacity-50 pointer-events-none"}>
+            <div className="text-[12.5px] font-medium text-ink-600 mb-2">
+              Times {tz ? `(${tz})` : ""}
+            </div>
+            {times.length === 0 ? (
+              <div className="text-[12.5px] text-ink-400 mb-3">
+                No times yet — add one below.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {times.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1.5 bg-ink-100 rounded-md pl-2.5 pr-1.5 py-1 text-[13px] text-ink-800 tabular-nums"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => removeTime(t)}
+                      aria-label={`Remove ${t}`}
+                      className="text-ink-400 hover:text-red-600 leading-none text-[15px]"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <label className="block">
+                <div className="text-[12px] text-ink-500 mb-1">Add a time</div>
+                <Input
+                  type="time"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
+                  className="w-[140px]"
+                />
+              </label>
+              <Button variant="secondary" size="sm" onClick={addTime}>
+                Add
+              </Button>
+            </div>
+          </div>
+
+          <label className="block max-w-xs">
+            <div className="text-[12.5px] font-medium text-ink-600 mb-1.5">
+              Timezone
+            </div>
+            <Input
+              value={tz}
+              onChange={(e) => setTz(e.target.value)}
+              onBlur={() => save({ tz })}
+              placeholder="Europe/Berlin"
+              className="w-full"
+            />
+            <div className="text-[11.5px] text-ink-400 mt-1">
+              IANA name, e.g. Europe/Berlin, America/New_York, UTC.
+            </div>
+          </label>
+        </CardBody>
+      </Card>
+    </section>
   );
 }
 
@@ -1213,6 +1376,13 @@ function formatEvent(ev: LogEvent): { text: string; cls: string } {
         text: `⛔ monthly data budget (${s("budget_gb")} GB) reached — posting paused until next month`,
         cls: err,
       };
+    case "scheduled_trigger": {
+      const r = (ev as any).result || {};
+      const detail = r.started
+        ? `started ${r.count ?? ""} video(s)`
+        : `skipped (${r.reason ?? "—"})`;
+      return { text: `⏰ scheduled ${s("time")} — ${detail}`, cls: "text-ink-600" };
+    }
     case "hello":
       return { text: `— connected —`, cls: "text-ink-400" };
     default:

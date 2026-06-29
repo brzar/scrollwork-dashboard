@@ -34,6 +34,7 @@ const ALLOWED = new Set([
   "pause",
   "post",
   "abort",
+  "schedule",
   "skip",
   "unskip",
   "lookup",
