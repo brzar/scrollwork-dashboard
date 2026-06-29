@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "./supabase/admin";
 import { runRefresh, type RefreshResult } from "./megaphone-refresh-core";
 import { listMegaphoneAccounts } from "./megaphone-accounts";
+import { sendAlert } from "./email";
 
 /**
  * Server-only wrapper around the Playwright refresh. Reads a saved storage
@@ -12,7 +13,10 @@ import { listMegaphoneAccounts } from "./megaphone-accounts";
 type SessionRow = {
   organization_id: string | null;
   storage_state: any | null;
+  last_refresh_message: string | null;
 };
+
+const SESSION_COLS = "organization_id, storage_state, last_refresh_message";
 
 /** Refresh one account's session. */
 export async function refreshAndPersist(
@@ -25,14 +29,14 @@ export async function refreshAndPersist(
   let useLegacyKey = false;
   const byAccount = await supabase
     .from("megaphone_session")
-    .select("organization_id, storage_state")
+    .select(SESSION_COLS)
     .eq("account", account)
     .maybeSingle<SessionRow>();
   if (byAccount.error) {
     useLegacyKey = true;
     const legacy = await supabase
       .from("megaphone_session")
-      .select("organization_id, storage_state")
+      .select(SESSION_COLS)
       .eq("id", true)
       .maybeSingle<SessionRow>();
     if (legacy.error) {
@@ -75,6 +79,26 @@ export async function refreshAndPersist(
   };
   const writer = supabase.from("megaphone_session").update(patch);
   await (useLegacyKey ? writer.eq("id", true) : writer.eq("account", account));
+
+  // Alert only on the TRANSITION into the "expired" state — so a transient
+  // timeout doesn't spam, and we fire exactly when a re-seed becomes needed.
+  const wasExpired = /expired/i.test(sess.last_refresh_message ?? "");
+  const nowExpired = !result.ok && /expired/i.test(result.message ?? "");
+  if (nowExpired && !wasExpired) {
+    await sendAlert(
+      `⚠️ Megaphone login needs re-seeding (${account})`,
+      `The dashboard can no longer auto-refresh the Megaphone session for ` +
+        `account "${account}" — the saved login has fully expired.\n\n` +
+        `${result.message}\n\n` +
+        `Data syncs may keep running on cached cookies for a while, then stop. ` +
+        `To restore auto-refresh, run:\n\n  npm run megaphone:auth -- ${account}\n`,
+    );
+  } else if (result.ok && wasExpired) {
+    await sendAlert(
+      `✅ Megaphone login restored (${account})`,
+      `Auto-refresh is healthy again for account "${account}".`,
+    );
+  }
 
   // Don't ship the (huge) storage state back to the caller.
   if (result.storageState) result.storageState = undefined;

@@ -185,17 +185,48 @@ export default async function AdminOverview() {
                               : "manual only"}
                           </span>
                         </div>
-                        {s.last_refresh_at ? (
-                          <div className="text-xs text-ink-500">
-                            Last refresh{" "}
-                            {new Date(s.last_refresh_at).toLocaleString()}
-                            {s.last_refresh_status === "failed" ? (
-                              <span className="text-red-600">
-                                {" "}· {s.last_refresh_message ?? "failed"}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
+                        {(() => {
+                          const expired =
+                            s.last_refresh_status === "failed" &&
+                            /expired/i.test(s.last_refresh_message ?? "");
+                          const transient =
+                            s.last_refresh_status === "failed" && !expired;
+                          return (
+                            <>
+                              <div className="text-xs mt-0.5">
+                                {expired ? (
+                                  <span className="text-amber-700 font-medium">
+                                    ⚠ Login expired — re-seed needed
+                                  </span>
+                                ) : transient ? (
+                                  <span className="text-ink-500">
+                                    Last refresh hiccup (auto-retries)
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-700 font-medium">
+                                    ✓ Auto-refresh healthy
+                                  </span>
+                                )}
+                              </div>
+                              {expired ? (
+                                <div className="text-[11px] text-ink-500 mt-0.5">
+                                  Syncs keep running on the cached session until
+                                  it lapses. Restore with{" "}
+                                  <code className="text-ink-700">
+                                    npm run megaphone:auth -- {s.account}
+                                  </code>
+                                  .
+                                </div>
+                              ) : null}
+                              {s.last_refresh_at ? (
+                                <div className="text-[11px] text-ink-400 mt-0.5">
+                                  Last refresh{" "}
+                                  {new Date(s.last_refresh_at).toLocaleString()}
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
