@@ -37,6 +37,8 @@ const ALLOWED = new Set([
   "schedule",
   "skip",
   "unskip",
+  "posted",
+  "unpost",
   "lookup",
   "warnings",
   "log",
