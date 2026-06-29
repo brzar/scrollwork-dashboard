@@ -412,38 +412,44 @@ function ScheduleSection({ flash }: { flash: (t: Tone, s: string) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const r = await api<{ enabled: boolean; times: string[]; tz: string }>(
-        "/schedule",
-      );
-      if (r.ok && r.data) {
-        setEnabled(!!r.data.enabled);
-        setTimes(r.data.times ?? []);
-        setTz(r.data.tz || "UTC");
-      }
-      setLoaded(true);
-    })();
+  type Cfg = { enabled: boolean; times: string[]; tz: string };
+  const applyCfg = useCallback((c: Cfg) => {
+    setEnabled(!!c.enabled);
+    setTimes(Array.isArray(c.times) ? c.times : []);
+    setTz(c.tz || "UTC");
   }, []);
 
-  async function save(next: {
-    enabled?: boolean;
-    times?: string[];
-    tz?: string;
-  }) {
-    const body = {
+  const reload = useCallback(async () => {
+    const r = await api<Cfg>("/schedule");
+    if (r.ok && r.data) applyCfg(r.data);
+    return r;
+  }, [applyCfg]);
+
+  useEffect(() => {
+    reload().finally(() => setLoaded(true));
+  }, [reload]);
+
+  // Save and make local state authoritative from the server's response, so the
+  // UI always reflects what's actually persisted (no phantom chips).
+  async function save(next: Partial<Cfg>) {
+    const body: Cfg = {
       enabled: next.enabled ?? enabled,
       times: next.times ?? times,
       tz: next.tz ?? tz,
     };
     setBusy(true);
-    const r = await api("/schedule", {
+    const r = await api<Cfg>("/schedule", {
       method: "POST",
       body: JSON.stringify(body),
     });
     setBusy(false);
-    if (r.ok) flash("success", "Schedule saved.");
-    else flash("danger", r.error ?? "Couldn't save the schedule");
+    if (r.ok && r.data) {
+      applyCfg(r.data);
+      flash("success", "Schedule saved.");
+    } else {
+      flash("danger", r.error ?? "Couldn't save the schedule");
+      reload(); // revert optimistic UI to the real server state
+    }
   }
 
   function toggle() {
