@@ -70,12 +70,16 @@ async function handle(
   const auth = await requireRole(isAdmin);
   if (auth.error) return auth.error;
 
-  const rl = rateLimit(req, auth.session.userId, {
-    scope: "poster:proxy",
-    limit: method === "GET" ? 180 : 30,
-    windowMs: 60_000,
-  });
-  if (rl) return rl;
+  // Stopping a run must never be rate-limited — you always want to be able
+  // to hit the brakes.
+  if (first !== "abort") {
+    const rl = rateLimit(req, auth.session.userId, {
+      scope: "poster:proxy",
+      limit: method === "GET" ? 180 : 30,
+      windowMs: 60_000,
+    });
+    if (rl) return rl;
+  }
 
   if (!posterConfigured()) {
     return safeError(
