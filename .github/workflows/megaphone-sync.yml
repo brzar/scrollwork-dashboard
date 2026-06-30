@@ -28,18 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # Cache the Chromium download so most runs skip the ~100MB install.
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      # 1) Re-roll the session. continue-on-error so a transient refresh
-      #    hiccup doesn't block a sync that might still have a valid session.
+      # 1) Roll the session via the private API (no browser needed). continue-
+      #    on-error so a transient hiccup doesn't block the sync.
       - name: Refresh Megaphone sessions
         continue-on-error: true
         env:
