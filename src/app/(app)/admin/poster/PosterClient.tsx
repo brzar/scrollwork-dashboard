@@ -903,7 +903,13 @@ function ChannelsSection({
   flash: (t: Tone, s: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Channel | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  function closeForm() {
+    setAdding(false);
+    setEditing(null);
+  }
 
   async function handleToggle(c: Channel) {
     if (busy) return;
@@ -924,17 +930,22 @@ function ChannelsSection({
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setAdding((v) => !v)}
+          onClick={() => {
+            setEditing(null);
+            setAdding((v) => !v);
+          }}
         >
           {adding ? "Cancel" : "Add channel"}
         </Button>
       </div>
 
-      {adding ? (
-        <AddChannel
-          onCancel={() => setAdding(false)}
+      {adding || editing ? (
+        <ChannelForm
+          key={editing?.slug ?? "add"}
+          existing={editing ?? undefined}
+          onCancel={closeForm}
           onSaved={() => {
-            setAdding(false);
+            closeForm();
             onAdded();
           }}
           flash={flash}
@@ -1008,7 +1019,17 @@ function ChannelsSection({
                         />
                       </div>
                     </TD>
-                    <TD className="text-right">
+                    <TD className="text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setAdding(false);
+                          setEditing(c);
+                        }}
+                      >
+                        Edit
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1029,28 +1050,32 @@ function ChannelsSection({
   );
 }
 
-function AddChannel({
+function ChannelForm({
+  existing,
   onCancel,
   onSaved,
   flash,
 }: {
+  existing?: Channel;
   onCancel: () => void;
   onSaved: () => void;
   flash: (t: Tone, s: string) => void;
 }) {
   const [form, setForm] = useState({
-    name: "",
-    youtube_url: "",
-    megaphone_network_id: "",
-    megaphone_podcast_id: "",
-    start_video_id: "",
-    posts_per_day: "1",
-    mode: "backfill",
-    megaphone_account: "1",
-    include_shorts: false,
+    name: existing?.name ?? "",
+    youtube_url: existing?.youtube_url ?? "",
+    megaphone_network_id: existing?.megaphone_network_id ?? "",
+    megaphone_podcast_id: existing?.megaphone_podcast_id ?? "",
+    start_video_id: existing?.start_video_id ?? "",
+    posts_per_day: String(existing?.posts_per_day ?? 1),
+    mode: existing?.mode ?? "backfill",
+    megaphone_account: String(existing?.megaphone_account ?? 1),
+    include_shorts: existing?.include_shorts ?? false,
+    author: existing?.author ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [looking, setLooking] = useState(false);
+  const isEdit = !!existing;
 
   function set<K extends keyof typeof form>(k: K, v: (typeof form)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -1085,27 +1110,33 @@ function AddChannel({
 
   async function save() {
     setSaving(true);
-    const res = await api("/channels", {
-      method: "POST",
-      body: JSON.stringify({
-        ...form,
-        posts_per_day: Number(form.posts_per_day),
-        megaphone_account: Number(form.megaphone_account),
-      }),
-    });
+    const payload = {
+      ...form,
+      posts_per_day: Number(form.posts_per_day),
+      megaphone_account: Number(form.megaphone_account),
+    };
+    const res = isEdit
+      ? await api(`/channels/${existing!.slug}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        })
+      : await api("/channels", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
     setSaving(false);
     if (res.ok) {
-      flash("success", `Added “${form.name}”.`);
+      flash("success", `${isEdit ? "Saved" : "Added"} “${form.name}”.`);
       onSaved();
     } else {
-      flash("danger", res.error ?? "Couldn't add channel");
+      flash("danger", res.error ?? `Couldn't ${isEdit ? "save" : "add"} channel`);
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Add a channel</CardTitle>
+        <CardTitle>{isEdit ? `Edit ${existing!.name}` : "Add a channel"}</CardTitle>
       </CardHeader>
       <CardBody className="p-6 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1172,6 +1203,13 @@ function AddChannel({
               onChange={(e) => set("megaphone_account", e.target.value)}
             />
           </Field>
+          <Field label="Author (optional)">
+            <Input
+              value={form.author}
+              onChange={(e) => set("author", e.target.value)}
+              placeholder="Shown as the episode author on Megaphone"
+            />
+          </Field>
         </div>
         <label className="flex items-center gap-2 text-[13px] text-ink-700">
           <input
@@ -1183,7 +1221,7 @@ function AddChannel({
         </label>
         <div className="flex items-center gap-2 pt-1">
           <Button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save channel"}
+            {saving ? "Saving…" : isEdit ? "Save changes" : "Save channel"}
           </Button>
           <Button variant="secondary" onClick={lookup} disabled={looking}>
             {looking ? "Looking up…" : "Look up"}
