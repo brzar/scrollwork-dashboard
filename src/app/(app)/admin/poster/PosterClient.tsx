@@ -1076,6 +1076,13 @@ function ChannelForm({
   const [saving, setSaving] = useState(false);
   const [looking, setLooking] = useState(false);
   const isEdit = !!existing;
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // The form renders above the (long) channels table, so scroll it into view
+  // when it opens — otherwise clicking Edit on a lower row looks like a no-op.
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   function set<K extends keyof typeof form>(k: K, v: (typeof form)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -1134,7 +1141,8 @@ function ChannelForm({
   }
 
   return (
-    <Card>
+    <div ref={formRef} className="scroll-mt-20">
+    <Card className="ring-2 ring-brand/30">
       <CardHeader>
         <CardTitle>{isEdit ? `Edit ${existing!.name}` : "Add a channel"}</CardTitle>
       </CardHeader>
@@ -1232,6 +1240,7 @@ function ChannelForm({
         </div>
       </CardBody>
     </Card>
+    </div>
   );
 }
 
