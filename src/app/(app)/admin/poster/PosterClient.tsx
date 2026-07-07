@@ -264,12 +264,22 @@ function Poster() {
   }
 
   async function toggleChannel(ch: Channel) {
-    const res = await api(`/channels/${ch.slug}/toggle`, { method: "POST" });
-    if (res.ok) {
+    const target = !ch.enabled;
+    const setEnabled = (slug: string, val: boolean) =>
       setChannels((cs) =>
-        cs.map((c) => (c.slug === ch.slug ? { ...c, enabled: !c.enabled } : c)),
+        cs.map((c) => (c.slug === slug ? { ...c, enabled: val } : c)),
       );
+    // Optimistic: flip the switch immediately so the click feels responsive
+    // (the round-trip to Fly can take a second or two).
+    setEnabled(ch.slug, target);
+    const res = await api<{ enabled: boolean }>(
+      `/channels/${ch.slug}/toggle`,
+      { method: "POST" },
+    );
+    if (res.ok && res.data) {
+      setEnabled(ch.slug, !!res.data.enabled); // reconcile with server truth
     } else {
+      setEnabled(ch.slug, ch.enabled); // revert
       flash("danger", res.error ?? "Toggle failed");
     }
   }
