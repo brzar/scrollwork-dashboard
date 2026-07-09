@@ -1410,6 +1410,8 @@ function formatEvent(ev: LogEvent): { text: string; cls: string } {
       return { text: `✗ download failed ${s("video_id")}: ${s("message").slice(0, 200)}`, cls: err };
     case "download_retry":
       return { text: `↻ retry ${s("attempt")}/${s("max")} ${s("video_id")}`, cls: warn };
+    case "download_fallback":
+      return { text: `↻ ${s("video_id")}: RapidAPI blocked — retrying with yt-dlp`, cls: warn };
     case "tunnel_ready":
       return { text: `🌐 tunnel ready`, cls: ink };
     case "megaphone_submitted":
