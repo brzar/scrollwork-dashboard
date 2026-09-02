@@ -17,6 +17,7 @@ const SELF_AUTH_API_PATHS = [
   "/api/admin/sync",
   "/api/admin/sync-metrics",
   "/api/admin/megaphone-refresh",
+  "/api/external/owner-take",
 ];
 
 export async function middleware(req: NextRequest) {
