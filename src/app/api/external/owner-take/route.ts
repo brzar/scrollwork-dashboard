@@ -8,6 +8,7 @@ import {
 } from "@/lib/split";
 import { startOfMonth, endOfMonth, subYears } from "date-fns";
 import { isoDate } from "@/lib/date-ranges";
+import { verifyExternalToken } from "@/lib/external-token";
 
 /**
  * Machine-readable owner take, for external tools (Life Hub).
@@ -25,9 +26,17 @@ export const dynamic = "force-dynamic";
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function GET(req: Request) {
-  const token = process.env.EXTERNAL_API_TOKEN;
-  const auth = req.headers.get("authorization") ?? "";
-  if (!token || auth !== `Bearer ${token}`) {
+  const master = process.env.EXTERNAL_API_TOKEN;
+  const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+  // Master token (legacy) → the owner; otherwise a signed per-user token
+  // issued by /connect-lifehub → that user's partner identity.
+  let takeName: string | null = null;
+  if (master && bearer === master) {
+    takeName = OWNER_NAME;
+  } else {
+    takeName = verifyExternalToken(bearer)?.p ?? null;
+  }
+  if (!master || !takeName) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -108,8 +117,8 @@ export async function GET(req: Request) {
     );
     const month = String(r.date).slice(0, 7);
     const cur = byMonth.get(month) ?? { confirmed: 0, estimated: 0 };
-    cur.confirmed += sc.payouts[OWNER_NAME] ?? 0;
-    cur.estimated += se.payouts[OWNER_NAME] ?? 0;
+    cur.confirmed += sc.payouts[takeName] ?? 0;
+    cur.estimated += se.payouts[takeName] ?? 0;
     byMonth.set(month, cur);
   }
 
@@ -122,5 +131,5 @@ export async function GET(req: Request) {
       total: round2(x.confirmed + x.estimated),
     }));
 
-  return NextResponse.json({ owner: OWNER_NAME, months });
+  return NextResponse.json({ owner: takeName, months });
 }
